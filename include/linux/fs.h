@@ -1,7 +1,6 @@
 #ifndef _LINUX_FS_H
 #define _LINUX_FS_H
 
-
 #include <linux/linkage.h>
 #include <linux/wait.h>
 #include <linux/kdev_t.h>
@@ -27,6 +26,8 @@
 #include <linux/uidgid.h>
 #include <linux/lockdep.h>
 #include <linux/percpu-rwsem.h>
+#include <linux/limits.h>
+#include <linux/ioctl.h>
 #include <linux/blk_types.h>
 
 #include <asm/byteorder.h>
@@ -192,6 +193,7 @@ typedef void (dio_iodone_t)(struct kiocb *iocb, loff_t offset,
 #define READA			RWA_MASK
 #define KERNEL_READ		(READ|REQ_KERNEL)
 #define KERNEL_WRITE		(WRITE|REQ_KERNEL)
+#define SWRITE			(WRITE | READA)
 
 #define READ_SYNC		(READ | REQ_SYNC)
 #define WRITE_SYNC		(WRITE | REQ_SYNC | REQ_NOIDLE)
