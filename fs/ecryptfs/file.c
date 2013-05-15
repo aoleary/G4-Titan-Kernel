@@ -116,18 +116,18 @@ static int ecryptfs_readdir(struct file *file, void *dirent, filldir_t filldir)
 	int rc;
 	struct file *lower_file;
 	struct inode *inode;
-	struct ecryptfs_getdents_callback buf = {
-		.dirent = dirent,
-		.dentry = file->f_path.dentry,
-		.filldir = filldir,
-		.filldir_called = 0,
-		.entries_written = 0,
-		.ctx.actor = ecryptfs_filldir
-	};
+	struct ecryptfs_getdents_callback buf;
 
 	lower_file = ecryptfs_file_to_lower(file);
 	lower_file->f_pos = file->f_pos;
 	inode = file_inode(file);
+	memset(&buf, 0, sizeof(buf));
+	buf.dirent = dirent;
+	buf.dentry = file->f_path.dentry;
+	buf.filldir = filldir;
+	buf.filldir_called = 0;
+	buf.entries_written = 0;
+	buf.ctx.actor = ecryptfs_filldir;
 	rc = iterate_dir(lower_file, &buf.ctx);
 	file->f_pos = lower_file->f_pos;
 	if (rc < 0)
@@ -183,19 +183,6 @@ static int read_or_initialize_metadata(struct dentry *dentry)
 out:
 	mutex_unlock(&crypt_stat->cs_mutex);
 	return rc;
-}
-
-static int ecryptfs_mmap(struct file *file, struct vm_area_struct *vma)
-{
-	struct file *lower_file = ecryptfs_file_to_lower(file);
-	/*
-	 * Don't allow mmap on top of file systems that don't support it
-	 * natively.  If FILESYSTEM_MAX_STACK_DEPTH > 2 or ecryptfs
-	 * allows recursive mounting, this will need to be extended.
-	 */
-	if (!lower_file->f_op->mmap)
-		return -ENODEV;
-	return generic_file_mmap(file, vma);
 }
 
 /**
@@ -279,7 +266,7 @@ static int ecryptfs_flush(struct file *file, fl_owner_t td)
 {
 	struct file *lower_file = ecryptfs_file_to_lower(file);
 
-	if (lower_file->f_op->flush) {
+	if (lower_file->f_op && lower_file->f_op->flush) {
 		filemap_write_and_wait(file->f_mapping);
 		return lower_file->f_op->flush(lower_file, td);
 	}
@@ -313,7 +300,7 @@ static int ecryptfs_fasync(int fd, struct file *file, int flag)
 	struct file *lower_file = NULL;
 
 	lower_file = ecryptfs_file_to_lower(file);
-	if (lower_file->f_op->fasync)
+	if (lower_file->f_op && lower_file->f_op->fasync)
 		rc = lower_file->f_op->fasync(fd, lower_file, flag);
 	return rc;
 }
@@ -326,7 +313,7 @@ ecryptfs_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	if (ecryptfs_file_to_private(file))
 		lower_file = ecryptfs_file_to_lower(file);
-	if (lower_file->f_op && lower_file->f_op->unlocked_ioctl)
+	if (lower_file && lower_file->f_op && lower_file->f_op->unlocked_ioctl)
 		rc = lower_file->f_op->unlocked_ioctl(lower_file, cmd, arg);
 	return rc;
 }
@@ -340,7 +327,7 @@ ecryptfs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	if (ecryptfs_file_to_private(file))
 		lower_file = ecryptfs_file_to_lower(file);
-	if (lower_file->f_op && lower_file->f_op->compat_ioctl)
+	if (lower_file && lower_file->f_op && lower_file->f_op->compat_ioctl)
 		rc = lower_file->f_op->compat_ioctl(lower_file, cmd, arg);
 	return rc;
 }
@@ -373,7 +360,7 @@ const struct file_operations ecryptfs_main_fops = {
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = ecryptfs_compat_ioctl,
 #endif
-	.mmap = ecryptfs_mmap,
+	.mmap = generic_file_mmap,
 	.open = ecryptfs_open,
 	.flush = ecryptfs_flush,
 	.release = ecryptfs_release,

@@ -399,28 +399,12 @@ static int put_compat_flock64(struct flock *kfl, struct compat_flock64 __user *u
 }
 #endif
 
-static unsigned int
-convert_fcntl_cmd(unsigned int cmd)
-{
-	switch (cmd) {
-	case F_GETLK64:
-		return F_GETLK;
-	case F_SETLK64:
-		return F_SETLK;
-	case F_SETLKW64:
-		return F_SETLKW;
-	}
-
-	return cmd;
-}
-
 asmlinkage long compat_sys_fcntl64(unsigned int fd, unsigned int cmd,
 		unsigned long arg)
 {
 	mm_segment_t old_fs;
 	struct flock f;
 	long ret;
-	unsigned int conv_cmd;
 
 	switch (cmd) {
 	case F_GETLK:
@@ -457,18 +441,16 @@ asmlinkage long compat_sys_fcntl64(unsigned int fd, unsigned int cmd,
 	case F_GETLK64:
 	case F_SETLK64:
 	case F_SETLKW64:
-	case F_OFD_GETLK:
-	case F_OFD_SETLK:
-	case F_OFD_SETLKW:
 		ret = get_compat_flock64(&f, compat_ptr(arg));
 		if (ret != 0)
 			break;
 		old_fs = get_fs();
 		set_fs(KERNEL_DS);
-		conv_cmd = convert_fcntl_cmd(cmd);
-		ret = sys_fcntl(fd, conv_cmd, (unsigned long)&f);
+		ret = sys_fcntl(fd, (cmd == F_GETLK64) ? F_GETLK :
+				((cmd == F_SETLK64) ? F_SETLK : F_SETLKW),
+				(unsigned long)&f);
 		set_fs(old_fs);
-		if ((conv_cmd == F_GETLK || conv_cmd == F_OFD_GETLK) && ret == 0) {
+		if (cmd == F_GETLK64 && ret == 0) {
 			/* need to return lock information - see above for commentary */
 			if (f.l_start > COMPAT_LOFF_T_MAX)
 				ret = -EOVERFLOW;
@@ -489,15 +471,8 @@ asmlinkage long compat_sys_fcntl64(unsigned int fd, unsigned int cmd,
 asmlinkage long compat_sys_fcntl(unsigned int fd, unsigned int cmd,
 		unsigned long arg)
 {
-	switch (cmd) {
-	case F_GETLK64:
-	case F_SETLK64:
-	case F_SETLKW64:
-	case F_OFD_GETLK:
-	case F_OFD_SETLK:
-	case F_OFD_SETLKW:
+	if ((cmd == F_GETLK64) || (cmd == F_SETLK64) || (cmd == F_SETLKW64))
 		return -EINVAL;
-	}
 	return compat_sys_fcntl64(fd, cmd, arg);
 }
 
@@ -899,13 +874,14 @@ asmlinkage long compat_sys_old_readdir(unsigned int fd,
 {
 	int error;
 	struct fd f = fdget(fd);
-	struct compat_readdir_callback buf = {
-		.ctx.actor = compat_fillonedir,
-		.dirent = dirent
-	};
+	struct compat_readdir_callback buf;
 
 	if (!f.file)
 		return -EBADF;
+
+	buf.result = 0;
+	buf.dirent = dirent;
+	buf.ctx.actor = compat_fillonedir;
 
 	error = iterate_dir(f.file, &buf.ctx);
 	if (buf.result)
@@ -978,11 +954,7 @@ asmlinkage long compat_sys_getdents(unsigned int fd,
 {
 	struct fd f;
 	struct compat_linux_dirent __user * lastdirent;
-	struct compat_getdents_callback buf = {
-		.ctx.actor = compat_filldir,
-		.current_dir = dirent,
-		.count = count
-	};
+	struct compat_getdents_callback buf;
 	int error;
 
 	if (!access_ok(VERIFY_WRITE, dirent, count))
@@ -992,12 +964,18 @@ asmlinkage long compat_sys_getdents(unsigned int fd,
 	if (!f.file)
 		return -EBADF;
 
+	buf.current_dir = dirent;
+	buf.previous = NULL;
+	buf.count = count;
+	buf.error = 0;
+	buf.ctx.actor = compat_filldir;
+
 	error = iterate_dir(f.file, &buf.ctx);
 	if (error >= 0)
 		error = buf.error;
 	lastdirent = buf.previous;
 	if (lastdirent) {
-		if (put_user(buf.ctx.pos, &lastdirent->d_off))
+		if (put_user(f.file->f_pos, &lastdirent->d_off))
 			error = -EFAULT;
 		else
 			error = count - buf.count;
@@ -1063,11 +1041,7 @@ asmlinkage long compat_sys_getdents64(unsigned int fd,
 {
 	struct fd f;
 	struct linux_dirent64 __user * lastdirent;
-	struct compat_getdents_callback64 buf = {
-		.ctx.actor = compat_filldir64,
-		.current_dir = dirent,
-		.count = count
-	};
+	struct compat_getdents_callback64 buf;
 	int error;
 
 	if (!access_ok(VERIFY_WRITE, dirent, count))
@@ -1077,12 +1051,18 @@ asmlinkage long compat_sys_getdents64(unsigned int fd,
 	if (!f.file)
 		return -EBADF;
 
+	buf.current_dir = dirent;
+	buf.previous = NULL;
+	buf.count = count;
+	buf.error = 0;
+	buf.ctx.actor = compat_filldir64;
+
 	error = iterate_dir(f.file, &buf.ctx);
 	if (error >= 0)
 		error = buf.error;
 	lastdirent = buf.previous;
 	if (lastdirent) {
-		typeof(lastdirent->d_off) d_off = buf.ctx.pos;
+		typeof(lastdirent->d_off) d_off = f.file->f_pos;
 		if (__put_user_unaligned(d_off, &lastdirent->d_off))
 			error = -EFAULT;
 		else

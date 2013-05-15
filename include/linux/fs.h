@@ -1566,7 +1566,8 @@ static inline bool dir_emit(struct dir_context *ctx,
 			    u64 ino, unsigned type)
 {
 	return ctx->actor(ctx, name, namelen, ctx->pos, ino, type) == 0;
-}
+};
+
 struct block_device_operations;
 
 /* These macros are for out of kernel modules to test that
