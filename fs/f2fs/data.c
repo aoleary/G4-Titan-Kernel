@@ -1935,10 +1935,22 @@ fail:
 	return err;
 }
 
-static int f2fs_write_end(struct file *file,
-			struct address_space *mapping,
-			loff_t pos, unsigned len, unsigned copied,
-			struct page *page, void *fsdata)
+static ssize_t f2fs_direct_IO(int rw, struct kiocb *iocb,
+		const struct iovec *iov, loff_t offset, unsigned long nr_segs)
+{
+	struct file *file = iocb->ki_filp;
+	struct inode *inode = file->f_mapping->host;
+
+	if (rw == WRITE)
+		return 0;
+
+	/* Needs synchronization with the cleaner */
+	return blockdev_direct_IO(rw, iocb, inode, iov, offset, nr_segs,
+						  get_data_block_ro);
+}
+
+static void f2fs_invalidate_data_page(struct page *page, unsigned int offset,
+				      unsigned int length)
 {
 	struct inode *inode = page->mapping->host;
 
