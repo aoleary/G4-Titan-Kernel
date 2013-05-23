@@ -135,10 +135,6 @@ SYSCALL_DEFINE3(old_readdir, unsigned int, fd,
 	if (!f.file)
 		return -EBADF;
 
-	buf.ctx.actor = fillonedir;
-	buf.result = 0;
-	buf.dirent = dirent;
-
 	error = iterate_dir(f.file, &buf.ctx);
 	if (buf.result)
 		error = buf.result;
@@ -232,12 +228,6 @@ SYSCALL_DEFINE3(getdents, unsigned int, fd,
 	if (!f.file)
 		return -EBADF;
 
-	buf.current_dir = dirent;
-	buf.previous = NULL;
-	buf.count = count;
-	buf.error = 0;
-	buf.ctx.actor = filldir;
-
 	error = iterate_dir(f.file, &buf.ctx);
 	if (error >= 0)
 		error = buf.error;
@@ -319,12 +309,6 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
 	f = fdget(fd);
 	if (!f.file)
 		return -EBADF;
-
-	buf.current_dir = dirent;
-	buf.previous = NULL;
-	buf.count = count;
-	buf.error = 0;
-	buf.ctx.actor = filldir64;
 
 	error = iterate_dir(f.file, &buf.ctx);
 	if (error >= 0)

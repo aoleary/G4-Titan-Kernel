@@ -157,12 +157,6 @@ SYSCALL_DEFINE4(osf_getdirentries, unsigned int, fd,
 	if (!arg.file)
 		return -EBADF;
 
-	buf.dirent = dirent;
-	buf.basep = basep;
-	buf.count = count;
-	buf.error = 0;
-	buf.ctx.actor = osf_filldir;
-
 	error = iterate_dir(arg.file, &buf.ctx);
 	if (error >= 0)
 		error = buf.error;

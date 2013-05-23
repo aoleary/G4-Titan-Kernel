@@ -280,7 +280,6 @@ static int get_name(const struct path *path, char *name, struct dentry *child)
 		goto out_close;
 
 	buffer.sequence = 0;
-	buffer.ctx.actor = filldir_one;
 	while (1) {
 		int old_seq = buffer.sequence;
 
