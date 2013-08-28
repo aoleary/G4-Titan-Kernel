@@ -362,9 +362,26 @@ unsigned long shrink_slab(struct shrink_control *shrinkctl,
 					max_pass, delta, total_scan);
 
 		while (total_scan > min_cache_size) {
+			if (shrinker->scan_objects) {
+				unsigned long ret;
+				shrinkctl->nr_to_scan = batch_size;
+				ret = shrinker->scan_objects(shrinker, shrinkctl);
 
-			if (total_scan < batch_size)
-				batch_size = total_scan;
+				if (ret == SHRINK_STOP)
+					break;
+				freed += ret;
+			} else {
+				int nr_before;
+				long ret;
+
+				nr_before = do_shrinker_shrink(shrinker, shrinkctl, 0);
+				ret = do_shrinker_shrink(shrinker, shrinkctl,
+								batch_size);
+				if (ret == -1)
+					break;
+				if (ret < nr_before)
+					freed += nr_before - ret;
+			}
 
 			if (shrinker->scan_objects) {
 				unsigned long ret;
