@@ -286,6 +286,7 @@ struct cg_proto;
   *    @sk_error_report: callback to indicate errors (e.g. %MSG_ERRQUEUE)
   *    @sk_backlog_rcv: callback to process the backlog
   *    @sk_destruct: called at sock freeing time, i.e. when all refcnt == 0
+  *    @sk_pacing_rate: Pacing rate (if supported by transport/packet scheduler)
  */
 struct sock {
     /*
