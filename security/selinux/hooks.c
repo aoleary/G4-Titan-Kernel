@@ -1642,6 +1642,18 @@ static inline int file_path_has_perm(const struct cred *cred,
 static int bpf_fd_pass(struct file *file, u32 sid);
 #endif
 
+/* Same as path_has_perm, but uses the inode from the file struct. */
+static inline int file_path_has_perm(const struct cred *cred,
+				     struct file *file,
+				     u32 av)
+{
+	struct common_audit_data ad;
+
+	ad.type = LSM_AUDIT_DATA_PATH;
+	ad.u.path = file->f_path;
+	return inode_has_perm(cred, file_inode(file), av, &ad);
+}
+
 /* Check whether a task can use an open file descriptor to
    access an inode in a given way.  Check access to the
    descriptor itself, and then use dentry_has_perm to
