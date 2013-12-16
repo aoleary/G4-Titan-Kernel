@@ -648,7 +648,7 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 			size_t size)
 {
 	int pcount = 0, ret = 0;
-	int j, page_size, sglen_alloc;
+	int j, page_size, sglen_alloc, sglen = 0;
 	size_t len;
 	pgprot_t page_prot = pgprot_writecombine(PAGE_KERNEL);
 	void *ptr;
@@ -736,6 +736,12 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 				continue;
 			}
 
+			/*
+			 * Update sglen and memdesc size,as requested allocation
+			 * not served fully. So that they can be correctly freed
+			 * in kgsl_sharedmem_free().
+			 */
+			memdesc->sglen = sglen;
 			memdesc->size = (size - len);
 
 			KGSL_CORE_ERR(
@@ -752,6 +758,8 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 		len -= page_size;
 		memdesc->page_count = pcount;
 	}
+
+	memdesc->sglen = sglen;
 	memdesc->size = size;
 
 	/*
