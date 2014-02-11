@@ -1870,7 +1870,6 @@ static struct cftype cfq_blkcg_files[] = {
 		.flags = CFTYPE_ONLY_ON_ROOT,
 		.seq_show = cfqg_print_leaf_weight_device,
 		.write_string = cfqg_set_leaf_weight_device,
-		.max_write_len = 256,
 	},
 	{
 		.name = "weight",
@@ -1885,7 +1884,6 @@ static struct cftype cfq_blkcg_files[] = {
 		.flags = CFTYPE_NOT_ON_ROOT,
 		.seq_show = cfqg_print_weight_device,
 		.write_string = cfqg_set_weight_device,
-		.max_write_len = 256,
 	},
 	{
 		.name = "weight",
@@ -1898,7 +1896,6 @@ static struct cftype cfq_blkcg_files[] = {
 		.name = "leaf_weight_device",
 		.seq_show = cfqg_print_leaf_weight_device,
 		.write_string = cfqg_set_leaf_weight_device,
-		.max_write_len = 256,
 	},
 	{
 		.name = "leaf_weight",
