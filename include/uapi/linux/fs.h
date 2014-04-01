@@ -38,6 +38,7 @@
 #ifdef CONFIG_SDCARD_FS
 #define RENAME_NOPROPAGATE	(1 << 3)	/* Don't Propagate*/
 #endif
+#define RENAME_NOREPLACE	(1 << 0)	/* Don't overwrite target */
 
 struct fstrim_range {
 	__u64 start;
