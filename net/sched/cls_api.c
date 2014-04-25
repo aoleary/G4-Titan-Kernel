@@ -322,7 +322,8 @@ replay:
 		}
 	}
 
-	err = tp->ops->change(net, skb, tp, cl, t->tcm_handle, tca, &fh);
+	err = tp->ops->change(net, skb, tp, cl, t->tcm_handle, tca, &fh,
+			      n->nlmsg_flags & NLM_F_CREATE ? TCA_ACT_NOREPLACE : TCA_ACT_REPLACE);
 	if (err == 0) {
 		if (tp_created) {
 			RCU_INIT_POINTER(tp->next, rtnl_dereference(*back));
@@ -508,7 +509,7 @@ void tcf_exts_destroy(struct tcf_proto *tp, struct tcf_exts *exts)
 EXPORT_SYMBOL(tcf_exts_destroy);
 
 int tcf_exts_validate(struct net *net, struct tcf_proto *tp, struct nlattr **tb,
-		  struct nlattr *rate_tlv, struct tcf_exts *exts)
+		  struct nlattr *rate_tlv, struct tcf_exts *exts, bool ovr)
 {
 #ifdef CONFIG_NET_CLS_ACT
 	{
@@ -517,7 +518,7 @@ int tcf_exts_validate(struct net *net, struct tcf_proto *tp, struct nlattr **tb,
 		INIT_LIST_HEAD(&exts->actions);
 		if (exts->police && tb[exts->police]) {
 			act = tcf_action_init_1(net, tb[exts->police], rate_tlv,
-						"police", TCA_ACT_NOREPLACE,
+						"police", ovr,
 						TCA_ACT_BIND);
 			if (IS_ERR(act))
 				return PTR_ERR(act);
@@ -527,7 +528,7 @@ int tcf_exts_validate(struct net *net, struct tcf_proto *tp, struct nlattr **tb,
 		} else if (exts->action && tb[exts->action]) {
 			int err;
 			err = tcf_action_init(net, tb[exts->action], rate_tlv,
-					      NULL, TCA_ACT_NOREPLACE,
+					      NULL, ovr,
 					      TCA_ACT_BIND, &exts->actions);
 			if (err)
 				return err;
