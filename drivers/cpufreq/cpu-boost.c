@@ -281,6 +281,13 @@ static void do_input_boost_rem(struct work_struct *work)
 
 	/* Update policies for all online CPUs */
 	update_policy_online();
+
+	if (sched_boost_active) {
+		ret = sched_set_boost(0);
+		if (ret)
+			pr_err("cpu-boost: HMP boost disable failed\n");
+		sched_boost_active = false;
+	}
 }
 
 #ifdef CONFIG_DYNAMIC_STUNE_BOOST
@@ -352,7 +359,7 @@ static void do_input_boost(struct kthread_work *work)
 		i_sync_info = &per_cpu(sync_info, i);
 		i_sync_info->input_boost_min = i_sync_info->input_boost_freq;
 	}
-		
+
 	/* Update policies for all online CPUs */
 	update_policy_online();
 
