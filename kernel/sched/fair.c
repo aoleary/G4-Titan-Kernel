@@ -6788,6 +6788,9 @@ static inline void update_sg_lb_stats(struct lb_env *env,
 		sgs->sum_nr_small_tasks += rq->hmp_stats.nr_small_tasks;
 		sgs->group_cpu_load += cpu_load(i);
 #endif
+
+		if (nr_running > 1) *overload = true;
+
 		sgs->sum_weighted_load += weighted_cpuload(i);
 
 		if (rq->nr_running > 1)
