@@ -2915,7 +2915,7 @@ SYSCALL_DEFINE2(memfd_create,
 		error = PTR_ERR(file);
 		goto err_fd;
 	}
-	info = SHMEM_I(file_inode(file));
+        info = SHMEM_I(file->f_path.dentry->d_inode);
 	file->f_mode |= FMODE_LSEEK | FMODE_PREAD | FMODE_PWRITE;
 	file->f_flags |= O_RDWR | O_LARGEFILE;
 	if (flags & MFD_ALLOW_SEALING)
