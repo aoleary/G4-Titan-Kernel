@@ -16,6 +16,7 @@
 #include <linux/sysfs.h>
 #include <linux/balloon_compaction.h>
 #include <linux/page-isolation.h>
+#include <linux/fb.h>
 #include <linux/kthread.h>
 #include <linux/freezer.h>
 #include <linux/module.h>
