@@ -128,6 +128,7 @@ obj-y				+= debugfs/
 else
 obj-$(CONFIG_ANDROID)		+= debugfs/
 endif
+obj-$(CONFIG_TRACING)		+= tracefs/
 obj-$(CONFIG_OCFS2_FS)		+= ocfs2/
 obj-$(CONFIG_BTRFS_FS)		+= btrfs/
 obj-$(CONFIG_GFS2_FS)           += gfs2/
