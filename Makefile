@@ -10,12 +10,6 @@ NAME = TOSSUG Baby Fish
 # Comments in this file are targeted only to the developer, do not
 # expect to learn how to build the kernel reading this file.
 
-# Do not:
-# o  use make's built-in rules and variables
-#    (this increases performance and avoids hard-to-debug behaviour);
-# o  print "Entering directory ...";
-MAKEFLAGS += -rR --no-print-directory
-
 # Avoid funny character set dependencies
 unexport LC_ALL
 LC_COLLATE=C
@@ -316,12 +310,9 @@ endif
 export quiet Q KBUILD_VERBOSE
 
 
-# Look for make include files relative to root of kernel src
-MAKEFLAGS += --include-dir=$(srctree)
-
 # We need some generic definitions (do not try to remake the file).
-$(srctree)/scripts/Kbuild.include: ;
-include $(srctree)/scripts/Kbuild.include
+scripts/Kbuild.include: ;
+include scripts/Kbuild.include
 
 # Make variables (CC, etc...)
 
@@ -496,7 +487,7 @@ ifeq ($(config-targets),1)
 # Read arch specific Makefile to set KBUILD_DEFCONFIG as needed.
 # KBUILD_DEFCONFIG may point out an alternative default configuration
 # used for 'make defconfig'
-include $(srctree)/arch/$(SRCARCH)/Makefile
+include arch/$(SRCARCH)/Makefile
 export KBUILD_DEFCONFIG KBUILD_KCONFIG
 
 config: scripts_basic outputmakefile FORCE
@@ -583,7 +574,7 @@ else
 KBUILD_CFLAGS   += -O3
 endif
 
-include $(srctree)/arch/$(SRCARCH)/Makefile
+include arch/$(SRCARCH)/Makefile
 
 ifdef CONFIG_READABLE_ASM
 # Disable optimizations that make assembler listings hard to read.
