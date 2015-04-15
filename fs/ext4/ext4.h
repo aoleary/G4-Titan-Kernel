@@ -995,6 +995,11 @@ struct ext4_inode_info {
 
 	/* Precomputed uuid+inum+igen checksum for seeding inode checksums */
 	__u32 i_csum_seed;
+
+#ifdef CONFIG_EXT4_FS_ENCRYPTION
+	/* Encryption params */
+	struct ext4_encryption_key i_encryption_key;
+#endif
 };
 
 /*
@@ -1383,6 +1388,17 @@ struct ext4_sb_info {
 	struct list_head s_es_lru;
 	struct percpu_counter s_extent_cache_cnt;
 	spinlock_t s_es_lru_lock ____cacheline_aligned_in_smp;
+
+	/* Ratelimit ext4 messages. */
+	struct ratelimit_state s_err_ratelimit_state;
+	struct ratelimit_state s_warning_ratelimit_state;
+	struct ratelimit_state s_msg_ratelimit_state;
+
+#ifdef CONFIG_EXT4_FS_ENCRYPTION
+	/* Encryption */
+	uint32_t s_file_encryption_mode;
+	uint32_t s_dir_encryption_mode;
+#endif
 };
 
 static inline struct ext4_sb_info *EXT4_SB(struct super_block *sb)
@@ -2070,6 +2086,35 @@ static inline int ext4_get_encryption_info(struct inode *inode)
 static inline struct ext4_crypt_info *ext4_encryption_info(struct inode *inode)
 {
 	return NULL;
+}
+#endif
+
+/* crypto.c */
+bool ext4_valid_contents_enc_mode(uint32_t mode);
+uint32_t ext4_validate_encryption_key_size(uint32_t mode, uint32_t size);
+extern struct workqueue_struct *ext4_read_workqueue;
+struct ext4_crypto_ctx *ext4_get_crypto_ctx(struct inode *inode);
+void ext4_release_crypto_ctx(struct ext4_crypto_ctx *ctx);
+void ext4_restore_control_page(struct page *data_page);
+struct page *ext4_encrypt(struct inode *inode,
+			  struct page *plaintext_page);
+int ext4_decrypt(struct ext4_crypto_ctx *ctx, struct page *page);
+int ext4_decrypt_one(struct inode *inode, struct page *page);
+int ext4_encrypted_zeroout(struct inode *inode, struct ext4_extent *ex);
+
+#ifdef CONFIG_EXT4_FS_ENCRYPTION
+int ext4_init_crypto(void);
+void ext4_exit_crypto(void);
+static inline int ext4_sb_has_crypto(struct super_block *sb)
+{
+	return EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_ENCRYPT);
+}
+#else
+static inline int ext4_init_crypto(void) { return 0; }
+static inline void ext4_exit_crypto(void) { }
+static inline int ext4_sb_has_crypto(struct super_block *sb)
+{
+	return 0;
 }
 #endif
 
