@@ -1939,6 +1939,7 @@ process:
 	}
 #else
 	bh_lock_sock_nested(sk);
+        tcp_sk(sk)->segs_in += max_t(u16, 1, skb_shinfo(skb)->gso_segs);
 #endif
 
 	ret = 0;
