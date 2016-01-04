@@ -287,6 +287,7 @@ struct cg_proto;
   *    @sk_backlog_rcv: callback to process the backlog
   *    @sk_destruct: called at sock freeing time, i.e. when all refcnt == 0
   *    @sk_pacing_rate: Pacing rate (if supported by transport/packet scheduler)
+  *    @sk_reuseport_cb: reuseport group container
  */
 struct sock {
     /*
@@ -408,6 +409,7 @@ struct sock {
                           struct sk_buff *skb);
     void                    (*sk_destruct)(struct sock *sk);
     kuid_t	    sk_uid;
+    struct sock_reuseport __rcu	*sk_reuseport_cb;
 };
 
 /*
