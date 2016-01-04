@@ -286,6 +286,7 @@ struct cg_proto;
   *    @sk_error_report: callback to indicate errors (e.g. %MSG_ERRQUEUE)
   *    @sk_backlog_rcv: callback to process the backlog
   *    @sk_destruct: called at sock freeing time, i.e. when all refcnt == 0
+  *    @sk_reuseport_cb: reuseport group container
  */
 struct sock {
     /*
@@ -403,9 +404,10 @@ struct sock {
     void            (*sk_data_ready)(struct sock *sk, int bytes);
     void            (*sk_write_space)(struct sock *sk);
     void            (*sk_error_report)(struct sock *sk);
-    int            (*sk_backlog_rcv)(struct sock *sk,
+    int             (*sk_backlog_rcv)(struct sock *sk,
                           struct sk_buff *skb);
     void                    (*sk_destruct)(struct sock *sk);
+    struct          sock_reuseport __rcu	*sk_reuseport_cb;
 };
 
 /*
