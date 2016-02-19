@@ -17,6 +17,10 @@
                     linux,reserve-region;
                     reg = <0 0x0ff00000 0 0x100000>;
                     linux,remove-completely;
+		   /* Hardboot: reserve 1MB of space
+		    * before ramoops address of 0x1ff00000
+		    */
+		    reg = <0x0 0x1fe00000 0x0 0x140000>;
                     label = "ramoops_mem";
             };
 

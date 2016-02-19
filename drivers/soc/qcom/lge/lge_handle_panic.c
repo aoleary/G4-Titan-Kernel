@@ -407,11 +407,6 @@ static int __init lge_panic_handler_early_init(void)
 	struct device_node *np;
 	uint32_t crash_handler_magic = 0;
 
-#ifdef CONFIG_KEXEC_HARDBOOT
-	unsigned long kexec_hardboot_addr = 0;
-	unsigned long kexec_hardboot_size = SZ_1M;
-#endif
-
 	panic_handler = kzalloc(sizeof(*panic_handler), GFP_KERNEL);
 	if (!panic_handler) {
 		pr_err("could not allocate memory for panic_handler\n");
@@ -429,17 +424,6 @@ static int __init lge_panic_handler_early_init(void)
 		pr_err("unable to map imem\n");
 		return -ENODEV;
 	}
-
-#ifdef CONFIG_KEXEC_HARDBOOT
-	// Reserve space for hardboot page, just before the ram_console
-	kexec_hardboot_addr = ramoops_addr - kexec_hardboot_size;
-
-	ret = memblock_remove(kexec_hardboot_addr, kexec_hardboot_size);
-	if(!ret)
-		pr_info("Hardboot page reserved at 0x%lx\n", kexec_hardboot_addr);
-	else
-		pr_err("Failed to reserve space for hardboot page at 0x%lx!\n", kexec_hardboot_addr);
-#endif
 
 	/* check struct boot_shared_imem_cookie_type is matched */
 	crash_handler_magic = __raw_readl(CRASH_HANDLER_MAGIC);
