@@ -16,6 +16,7 @@
 #include <linux/kobject.h>
 #include <linux/notifier.h>
 #include <linux/sysfs.h>
+#include <linux/sched.h>
 #include <asm/cputime.h>
 
 /*********************************************************************
@@ -162,11 +163,6 @@ static inline void cpufreq_trigger_update(u64 time)
 {
 	cpufreq_update_util(time, ULONG_MAX, 0);
 }
-
-struct update_util_data {
-	void (*func)(struct update_util_data *data,
-		     u64 time, unsigned long util, unsigned long max);
-};
 
 void cpufreq_set_update_util_data(int cpu, struct update_util_data *data);
 
