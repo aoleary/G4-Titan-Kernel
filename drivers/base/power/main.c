@@ -369,6 +369,9 @@ static void pm_dev_err(struct device *dev, pm_message_t state, char *info,
 {
 	printk(KERN_ERR "PM: Device %s failed to %s%s: error %d\n",
 		dev_name(dev), pm_verb(state.event), info, error);
+	if (state.event == PM_EVENT_SUSPEND)
+		log_suspend_abort_reason("PM: Device %s failed to %s%s\n",
+				dev_name(dev), pm_verb(state.event), info);
 }
 
 #if defined(CONFIG_MACH_LGE)
