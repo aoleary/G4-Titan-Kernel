@@ -64,6 +64,7 @@ static DEFINE_SPINLOCK(suspend_lock);
 
 #define TAG "msm_adreno_tz: "
 
+static unsigned int adrenoboost = 10000;
 static u64 suspend_time;
 static u64 suspend_start;
 
@@ -93,6 +94,30 @@ u64 suspend_time_ms(void)
 	suspend_start = suspend_sampling_time;
 	return time_diff;
 }
+
+static ssize_t adrenoboost_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	size_t count = 0;
+	count += sprintf(buf, "%d\n", adrenoboost);
+
+	return count;
+}
+
+static ssize_t adrenoboost_save(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int input;
+	sscanf(buf, "%d ", &input);
+	if (input < 0 || input > 50000) {
+		adrenoboost = 0;
+	} else {
+		adrenoboost = input;
+	}
+
+	return count;
+}
+
 
 /* Trap into the TrustZone, and call funcs there. */
 static int __secure_tz_reset_entry2(unsigned int *scm_data, u32 size_scm_data,
@@ -291,7 +316,7 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 
 		scm_data[0] = level;
 		scm_data[1] = priv->bin.total_time;
-		scm_data[2] = priv->bin.busy_time;
+		scm_data[2] = priv->bin.busy_time + (level * adrenoboost);
 		__secure_tz_update_entry3(scm_data, sizeof(scm_data),
 					&val, sizeof(val), priv->is_64);
 	}
