@@ -598,7 +598,7 @@ static void sde_crtc_frame_event_cb(void *data, u32 event)
 	fevent->event = event;
 	fevent->crtc = crtc;
 	fevent->ts = ktime_get();
-	queue_kthread_work(&priv->disp_thread[pipe_id].worker, &fevent->work);
+	kthread_queue_work(&priv->disp_thread[pipe_id].worker, &fevent->work);
 }
 
 /**
@@ -2024,7 +2024,7 @@ struct drm_crtc *sde_crtc_init(struct drm_device *dev,
 		INIT_LIST_HEAD(&sde_crtc->frame_events[i].list);
 		list_add(&sde_crtc->frame_events[i].list,
 				&sde_crtc->frame_event_list);
-		init_kthread_work(&sde_crtc->frame_events[i].work,
+		kthread_init_work(&sde_crtc->frame_events[i].work,
 				sde_crtc_frame_event_work);
 	}
 

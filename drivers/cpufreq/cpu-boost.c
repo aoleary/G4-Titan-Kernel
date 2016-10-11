@@ -468,7 +468,7 @@ static void cpuboost_input_event(struct input_handle *handle,
 	if (queuing_blocked(&cpu_boost_worker, &input_boost_work))
 		return;
 
-	queue_kthread_work(&cpu_boost_worker, &input_boost_work);
+	kthread_queue_work(&cpu_boost_worker, &input_boost_work);
 	last_input_time = ktime_to_us(ktime_get());
 }
 
@@ -554,14 +554,14 @@ static int cpu_boost_init(void)
 	struct cpu_sync *s;
 	struct sched_param param = { .sched_priority = MAX_RT_PRIO - 2 };
 
-	init_kthread_worker(&cpu_boost_worker);
+	kthread_init_worker(&cpu_boost_worker);
 	cpu_boost_worker_thread = kthread_run(kthread_worker_fn,
 		&cpu_boost_worker, "cpu_boost_worker_thread");
 	if (IS_ERR(cpu_boost_worker_thread))
 		return -EFAULT;
 
 	sched_setscheduler(cpu_boost_worker_thread, SCHED_FIFO, &param);
-	init_kthread_work(&input_boost_work, do_input_boost);
+	kthread_init_work(&input_boost_work, do_input_boost);
 	INIT_DELAYED_WORK(&input_boost_rem, do_input_boost_rem);
 	INIT_WORK(&input_boost_multi, do_input_boost_multi);
 #ifdef CONFIG_DYNAMIC_STUNE_BOOST
