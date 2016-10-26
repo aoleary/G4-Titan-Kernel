@@ -1486,8 +1486,16 @@ enum nl80211_commands {
  *	the connection request from a station. nl80211_connect_failed_reason
  *	enum has different reasons of connection failure.
  *
- * @NL80211_ATTR_SAE_DATA: SAE elements in Authentication frames. This starts
- *	with the Authentication transaction sequence number field.
+ * @NL80211_ATTR_AUTH_DATA: Fields and elements in Authentication frames.
+ *	This contains the authentication frame body (non-IE and IE data),
+ *	excluding the Authentication algorithm number, i.e., starting at the
+ *	Authentication transaction sequence number field. It is used with
+ *	authentication algorithms that need special fields to be added into
+ *	the frames (SAE and FILS). Currently, only the SAE cases use the
+ *	initial two fields (Authentication transaction sequence number and
+ *	Status code). However, those fields are included in the attribute data
+ *	for all authentication algorithms to keep the attribute definition
+ *	consistent.
  *
  * @NL80211_ATTR_VHT_CAPABILITY: VHT Capability information element (from
  *	association request when used with NL80211_CMD_NEW_STATION)
@@ -1872,7 +1880,7 @@ enum nl80211_attrs {
 
 	NL80211_ATTR_CONN_FAILED_REASON,
 
-	NL80211_ATTR_SAE_DATA,
+	NL80211_ATTR_AUTH_DATA,
 
 	NL80211_ATTR_VHT_CAPABILITY,
 
@@ -1990,6 +1998,7 @@ enum nl80211_attrs {
 #define NL80211_ATTR_KEY NL80211_ATTR_KEY
 #define NL80211_ATTR_KEYS NL80211_ATTR_KEYS
 #define NL80211_ATTR_FEATURE_FLAGS NL80211_ATTR_FEATURE_FLAGS
+#define NL80211_ATTR_SAE_DATA NL80211_ATTR_AUTH_DATA
 
 #define NL80211_MAX_SUPP_RATES			32
 #define NL80211_MAX_SUPP_HT_RATES		77
