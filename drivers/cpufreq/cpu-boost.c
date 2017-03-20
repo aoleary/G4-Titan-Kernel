@@ -1,8 +1,5 @@
 /*
  * Copyright (c) 2013-2015,2017, The Linux Foundation. All rights reserved.
- * Copyright (C) 2020 XiaoMi, Inc.
- * Copyright (c) 2017, Paranoid Android.
- * Copyright (C) 2017, Razer Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -60,8 +57,8 @@ module_param(dynamic_stune_boost_ms, uint, 0644);
 static struct delayed_work dynamic_stune_boost_rem;
 #endif /* CONFIG_DYNAMIC_STUNE_BOOST */
 
-static bool sched_boost_on_input;
-module_param(sched_boost_on_input, bool, 0644);
+static unsigned int sched_boost_on_input;
+module_param(sched_boost_on_input, uint, 0644);
 
 static bool sched_boost_active;
 
@@ -364,8 +361,8 @@ static void do_input_boost(struct kthread_work *work)
 	update_policy_online();
 
 	/* Enable scheduler boost to migrate tasks to big cluster */
-	if (sched_boost_on_input) {
-		ret = sched_set_boost(1);
+	if (sched_boost_on_input > 0) {
+		ret = sched_set_boost(sched_boost_on_input);
 		if (ret)
 			pr_err("cpu-boost: HMP boost enable failed\n");
 		else
