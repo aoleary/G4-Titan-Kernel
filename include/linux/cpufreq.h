@@ -550,8 +550,9 @@ ANDROID: cpufreq_stat: add per task/uid/freq stats */
 struct pid_namespace;
 
 struct seq_file;
+void cpufreq_task_stats_remove_uids(uid_t uid_start, uid_t uid_end);
 int  proc_time_in_state_show(struct seq_file *m, struct pid_namespace *ns,
-			     struct pid *pid, struct task_struct *p);
+	struct pid *pid, struct task_struct *p);
 
 #ifdef CONFIG_TASK_CPUFREQ_STATS
 void update_time_in_state(struct task_struct *p, int cpu);
