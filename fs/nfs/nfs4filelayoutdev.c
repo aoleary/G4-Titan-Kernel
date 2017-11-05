@@ -784,9 +784,9 @@ static void nfs4_wait_ds_connect(struct nfs4_pnfs_ds *ds)
 
 static void nfs4_clear_ds_conn_bit(struct nfs4_pnfs_ds *ds)
 {
-	smp_mb__before_clear_bit();
+	smp_mb__before_atomic();
 	clear_bit(NFS4DS_CONNECTING, &ds->ds_state);
-	smp_mb__after_clear_bit();
+	smp_mb__after_atomic();
 	wake_up_bit(&ds->ds_state, NFS4DS_CONNECTING);
 }
 
@@ -821,8 +821,7 @@ nfs4_fl_prepare_ds(struct pnfs_layout_segment *lseg, u32 ds_idx)
 		nfs4_wait_ds_connect(ds);
 	}
 out_test_devid:
-	if (ret->ds_clp == NULL ||
-	    filelayout_test_devid_unavailable(devid))
+	if (filelayout_test_devid_unavailable(devid))
 		ret = NULL;
 out:
 	return ret;

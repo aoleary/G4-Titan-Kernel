@@ -160,7 +160,12 @@ static __u16 const msstab[] = {
  * Generate a syncookie.  mssp points to the mss, which is returned
  * rounded down to the value encoded in the cookie.
  */
+#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
+__u32 cookie_v4_init_sequence(struct sock *sk, const struct sk_buff *skb,
+			      __u16 *mssp)
+#else
 __u32 cookie_v4_init_sequence(struct sock *sk, struct sk_buff *skb, __u16 *mssp)
+#endif
 {
 	const struct iphdr *iph = ip_hdr(skb);
 	const struct tcphdr *th = tcp_hdr(skb);
@@ -293,7 +298,11 @@ struct sock *cookie_v4_check(struct sock *sk, struct sk_buff *skb,
 
 	/* check for timestamp cookie support */
 	memset(&tcp_opt, 0, sizeof(tcp_opt));
+#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
+	tcp_parse_options(skb, &tcp_opt, NULL, 0, NULL);
+#else
 	tcp_parse_options(skb, &tcp_opt, 0, NULL);
+#endif
 
 	if (!cookie_check_timestamp(&tcp_opt, sock_net(sk), &ecn_ok))
 		goto out;
@@ -312,6 +321,7 @@ struct sock *cookie_v4_check(struct sock *sk, struct sk_buff *skb,
 	ireq->rmt_port		= th->source;
 	ireq->loc_addr		= ip_hdr(skb)->daddr;
 	ireq->rmt_addr		= ip_hdr(skb)->saddr;
+	ireq->ir_mark		= inet_request_mark(sk, skb);
 	ireq->ecn_ok		= ecn_ok;
 	ireq->snd_wscale	= tcp_opt.snd_wscale;
 	ireq->sack_ok		= tcp_opt.sack_ok;
@@ -348,11 +358,12 @@ struct sock *cookie_v4_check(struct sock *sk, struct sk_buff *skb,
 	 * hasn't changed since we received the original syn, but I see
 	 * no easy way to do this.
 	 */
-	flowi4_init_output(&fl4, sk->sk_bound_dev_if, sk->sk_mark,
+	flowi4_init_output(&fl4, sk->sk_bound_dev_if, ireq->ir_mark,
 			   RT_CONN_FLAGS(sk), RT_SCOPE_UNIVERSE, IPPROTO_TCP,
 			   inet_sk_flowi_flags(sk),
 			   (opt && opt->srr) ? opt->faddr : ireq->rmt_addr,
-			   ireq->loc_addr, th->source, th->dest);
+			   ireq->loc_addr, th->source, th->dest,
+			   sock_i_uid(sk));
 	security_req_classify_flow(req, flowi4_to_flowi(&fl4));
 	rt = ip_route_output_key(sock_net(sk), &fl4);
 	if (IS_ERR(rt)) {
@@ -363,10 +374,17 @@ struct sock *cookie_v4_check(struct sock *sk, struct sk_buff *skb,
 	/* Try to redo what tcp_v4_send_synack did. */
 	req->window_clamp = tp->window_clamp ? :dst_metric(&rt->dst, RTAX_WINDOW);
 
+#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
+	tp->select_initial_window(tcp_full_space(sk), req->mss,
+				  &req->rcv_wnd, &req->window_clamp,
+				  ireq->wscale_ok, &rcv_wscale,
+				  dst_metric(&rt->dst, RTAX_INITRWND), sk);
+#else
 	tcp_select_initial_window(tcp_full_space(sk), req->mss,
 				  &req->rcv_wnd, &req->window_clamp,
 				  ireq->wscale_ok, &rcv_wscale,
 				  dst_metric(&rt->dst, RTAX_INITRWND));
+#endif
 
 	ireq->rcv_wscale  = rcv_wscale;
 

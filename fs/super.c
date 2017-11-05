@@ -699,7 +699,6 @@ int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
 	if (flags & MS_RDONLY)
 		acct_auto_close(sb);
 	shrink_dcache_sb(sb);
-	sync_filesystem(sb);
 
 	remount_ro = (flags & MS_RDONLY) && !(sb->s_flags & MS_RDONLY);
 
@@ -715,6 +714,8 @@ int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
 				return retval;
 		}
 	}
+
+	sync_filesystem(sb);
 
 	if (sb->s_op->remount_fs) {
 		retval = sb->s_op->remount_fs(sb, &flags, data);
@@ -753,7 +754,7 @@ static void do_emergency_remount(struct work_struct *work)
 	struct super_block *sb, *p = NULL;
 
 	spin_lock(&sb_lock);
-	list_for_each_entry(sb, &super_blocks, s_list) {
+	list_for_each_entry_reverse(sb, &super_blocks, s_list) {
 		if (hlist_unhashed(&sb->s_instances))
 			continue;
 		sb->s_count++;
@@ -1327,8 +1328,8 @@ int freeze_super(struct super_block *sb)
 		}
 	}
 	/*
-	 * For debugging purposes so that fs can warn if it sees write activity
-	 * when frozen is set to SB_FREEZE_COMPLETE, and for thaw_super().
+	 * This is just for debugging purposes so that fs can warn if it
+	 * sees write activity when frozen is set to SB_FREEZE_COMPLETE.
 	 */
 	sb->s_writers.frozen = SB_FREEZE_COMPLETE;
 	up_write(&sb->s_umount);
@@ -1347,7 +1348,7 @@ int thaw_super(struct super_block *sb)
 	int error;
 
 	down_write(&sb->s_umount);
-	if (sb->s_writers.frozen != SB_FREEZE_COMPLETE) {
+	if (sb->s_writers.frozen == SB_UNFROZEN) {
 		up_write(&sb->s_umount);
 		return -EINVAL;
 	}

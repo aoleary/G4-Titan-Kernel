@@ -68,6 +68,7 @@ static ssize_t ecryptfs_read_update_atime(struct kiocb *iocb,
 }
 
 struct ecryptfs_getdents_callback {
+	struct dir_context ctx;
 	void *dirent;
 	struct dentry *dentry;
 	filldir_t filldir;
@@ -94,6 +95,9 @@ ecryptfs_filldir(void *dirent, const char *lower_name, int lower_namelen,
 		printk(KERN_ERR "%s: Error attempting to decode and decrypt "
 		       "filename [%s]; rc = [%d]\n", __func__, lower_name,
 		       rc);
+		printk(KERN_ERR " [CCAudit] %s: Error attempting to decode and decrypt "
+		       "filename [%s]; rc = [%d]\n", __func__, lower_name,
+		       rc);
 		goto out;
 	}
 	rc = buf->filldir(buf->dirent, name, name_size, offset, ino, d_type);
@@ -115,18 +119,19 @@ static int ecryptfs_readdir(struct file *file, void *dirent, filldir_t filldir)
 	int rc;
 	struct file *lower_file;
 	struct inode *inode;
-	struct ecryptfs_getdents_callback buf;
+	struct ecryptfs_getdents_callback buf = {
+		.dirent = dirent,
+		.dentry = file->f_path.dentry,
+		.filldir = filldir,
+		.filldir_called = 0,
+		.entries_written = 0,
+		.ctx.actor = ecryptfs_filldir
+	};
 
 	lower_file = ecryptfs_file_to_lower(file);
 	lower_file->f_pos = file->f_pos;
 	inode = file_inode(file);
-	memset(&buf, 0, sizeof(buf));
-	buf.dirent = dirent;
-	buf.dentry = file->f_path.dentry;
-	buf.filldir = filldir;
-	buf.filldir_called = 0;
-	buf.entries_written = 0;
-	rc = vfs_readdir(lower_file, ecryptfs_filldir, (void *)&buf);
+	rc = iterate_dir(lower_file, &buf.ctx);
 	file->f_pos = lower_file->f_pos;
 	if (rc < 0)
 		goto out;
@@ -183,19 +188,6 @@ out:
 	return rc;
 }
 
-static int ecryptfs_mmap(struct file *file, struct vm_area_struct *vma)
-{
-	struct file *lower_file = ecryptfs_file_to_lower(file);
-	/*
-	 * Don't allow mmap on top of file systems that don't support it
-	 * natively.  If FILESYSTEM_MAX_STACK_DEPTH > 2 or ecryptfs
-	 * allows recursive mounting, this will need to be extended.
-	 */
-	if (!lower_file->f_op->mmap)
-		return -ENODEV;
-	return generic_file_mmap(file, vma);
-}
-
 /**
  * ecryptfs_open
  * @inode: inode speciying file to open
@@ -220,6 +212,8 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 	if (!file_info) {
 		ecryptfs_printk(KERN_ERR,
 				"Error attempting to allocate memory\n");
+		ecryptfs_printk(KERN_ERR,
+				" [CCAudit] Error attempting to allocate memory\n");
 		rc = -ENOMEM;
 		goto out;
 	}
@@ -238,12 +232,18 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 			"the lower file for the dentry with name "
 			"[%s]; rc = [%d]\n", __func__,
 			ecryptfs_dentry->d_name.name, rc);
+		printk(KERN_ERR " [CCAudit] %s: Error attempting to initialize "
+			"the lower file for the dentry with name "
+			"[%s]; rc = [%d]\n", __func__,
+			ecryptfs_dentry->d_name.name, rc);
 		goto out_free;
 	}
 	if ((ecryptfs_inode_to_private(inode)->lower_file->f_flags & O_ACCMODE)
 	    == O_RDONLY && (file->f_flags & O_ACCMODE) != O_RDONLY) {
 		rc = -EPERM;
 		printk(KERN_WARNING "%s: Lower file is RO; eCryptfs "
+		       "file must hence be opened RO\n", __func__);
+		printk(KERN_WARNING " [CCAudit] %s: Lower file is RO; eCryptfs "
 		       "file must hence be opened RO\n", __func__);
 		goto out_put;
 	}
@@ -371,7 +371,7 @@ const struct file_operations ecryptfs_main_fops = {
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = ecryptfs_compat_ioctl,
 #endif
-	.mmap = ecryptfs_mmap,
+	.mmap = generic_file_mmap,
 	.open = ecryptfs_open,
 	.flush = ecryptfs_flush,
 	.release = ecryptfs_release,

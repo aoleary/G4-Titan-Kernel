@@ -42,6 +42,7 @@
 
 #define ARM_CPU_IMP_ARM			0x41
 #define ARM_CPU_IMP_INTEL		0x69
+#define ARM_CPU_IMP_QUALCOMM		0x51
 
 #define ARM_CPU_PART_ARM1136		0xB360
 #define ARM_CPU_PART_ARM1156		0xB560
@@ -57,9 +58,6 @@
 #define ARM_CPU_XSCALE_ARCH_V1		0x2000
 #define ARM_CPU_XSCALE_ARCH_V2		0x4000
 #define ARM_CPU_XSCALE_ARCH_V3		0x6000
-
-/* Qualcomm implemented cores */
-#define ARM_CPU_PART_SCORPION		0x510002d0
 
 extern unsigned int processor_id;
 

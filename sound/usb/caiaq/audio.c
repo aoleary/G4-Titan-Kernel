@@ -193,6 +193,10 @@ static int snd_usb_caiaq_pcm_hw_free(struct snd_pcm_substream *sub)
 	return snd_pcm_lib_free_pages(sub);
 }
 
+#ifdef CONFIG_LGE_USB_HOST_SUPPORT_LIST_SOUND
+static unsigned int rates[] = { 5512, 8000, 11025, 12000, 16000, 22050, 24000,
+				32000, 44100, 48000, 64000, 88200, 96000, 176400, 192000 };
+#else
 /* this should probably go upstream */
 #if SNDRV_PCM_RATE_5512 != 1 << 0 || SNDRV_PCM_RATE_192000 != 1 << 12
 #error "Change this table"
@@ -200,6 +204,7 @@ static int snd_usb_caiaq_pcm_hw_free(struct snd_pcm_substream *sub)
 
 static unsigned int rates[] = { 5512, 8000, 11025, 16000, 22050, 32000, 44100,
 				48000, 64000, 88200, 96000, 176400, 192000 };
+#endif
 
 static int snd_usb_caiaq_pcm_prepare(struct snd_pcm_substream *substream)
 {

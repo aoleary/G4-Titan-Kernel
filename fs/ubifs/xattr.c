@@ -167,7 +167,6 @@ out_cancel:
 	host_ui->xattr_cnt -= 1;
 	host_ui->xattr_size -= CALC_DENT_SIZE(nm->len);
 	host_ui->xattr_size -= CALC_XATTR_BYTES(size);
-	host_ui->xattr_names -= nm->len;
 	mutex_unlock(&host_ui->ui_mutex);
 out_free:
 	make_bad_inode(inode);
@@ -284,12 +283,12 @@ static struct inode *iget_xattr(struct ubifs_info *c, ino_t inum)
 	inode = ubifs_iget(c->vfs_sb, inum);
 	if (IS_ERR(inode)) {
 		ubifs_err("dead extended attribute entry, error %d",
-			  (int)PTR_ERR(inode));
+				c->vi.ubi_num, (int)PTR_ERR(inode));
 		return inode;
 	}
 	if (ubifs_inode(inode)->xattr)
 		return inode;
-	ubifs_err("corrupt extended attribute entry");
+	ubifs_err("corrupt extended attribute entry", c->vi.ubi_num);
 	iput(inode);
 	return ERR_PTR(-EINVAL);
 }
@@ -401,7 +400,7 @@ ssize_t ubifs_getxattr(struct dentry *dentry, const char *name, void *buf,
 		/* If @buf is %NULL we are supposed to return the length */
 		if (ui->data_len > size) {
 			ubifs_err("buffer size %zd, xattr len %d",
-				  size, ui->data_len);
+					c->vi.ubi_num, size, ui->data_len);
 			err = -ERANGE;
 			goto out_iput;
 		}
@@ -473,7 +472,8 @@ ssize_t ubifs_listxattr(struct dentry *dentry, char *buffer, size_t size)
 
 	kfree(pxent);
 	if (err != -ENOENT) {
-		ubifs_err("cannot find next direntry, error %d", err);
+		ubifs_err("cannot find next direntry, error %d", c->vi.ubi_num,
+				err);
 		return err;
 	}
 
@@ -515,7 +515,6 @@ out_cancel:
 	host_ui->xattr_cnt += 1;
 	host_ui->xattr_size += CALC_DENT_SIZE(nm->len);
 	host_ui->xattr_size += CALC_XATTR_BYTES(ui->data_len);
-	host_ui->xattr_names += nm->len;
 	mutex_unlock(&host_ui->ui_mutex);
 	ubifs_release_budget(c, &req);
 	make_bad_inode(inode);

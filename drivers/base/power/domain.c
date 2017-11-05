@@ -106,7 +106,7 @@ static bool genpd_sd_counter_dec(struct generic_pm_domain *genpd)
 static void genpd_sd_counter_inc(struct generic_pm_domain *genpd)
 {
 	atomic_inc(&genpd->sd_count);
-	smp_mb__after_atomic_inc();
+	smp_mb__after_atomic();
 }
 
 static void genpd_acquire_lock(struct generic_pm_domain *genpd)
@@ -1692,7 +1692,7 @@ int pm_genpd_add_subdomain_names(const char *master_name,
 int pm_genpd_remove_subdomain(struct generic_pm_domain *genpd,
 			      struct generic_pm_domain *subdomain)
 {
-	struct gpd_link *l, *link;
+	struct gpd_link *link;
 	int ret = -EINVAL;
 
 	if (IS_ERR_OR_NULL(genpd) || IS_ERR_OR_NULL(subdomain))
@@ -1701,7 +1701,7 @@ int pm_genpd_remove_subdomain(struct generic_pm_domain *genpd,
  start:
 	genpd_acquire_lock(genpd);
 
-	list_for_each_entry_safe(link, l, &genpd->master_links, master_node) {
+	list_for_each_entry(link, &genpd->master_links, master_node) {
 		if (link->slave != subdomain)
 			continue;
 

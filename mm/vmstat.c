@@ -19,6 +19,9 @@
 #include <linux/math64.h>
 #include <linux/writeback.h>
 #include <linux/compaction.h>
+#include <linux/mm_inline.h>
+
+#include "internal.h"
 
 #ifdef CONFIG_VM_EVENT_COUNTERS
 DEFINE_PER_CPU(struct vm_event_state, vm_event_states) = {{0}};
@@ -268,6 +271,15 @@ void __inc_zone_state(struct zone *zone, enum zone_stat_item item)
 void __inc_zone_page_state(struct page *page, enum zone_stat_item item)
 {
 	__inc_zone_state(page_zone(page), item);
+#ifdef CONFIG_PAGE_USAGE
+	if (page->zone_stat) {
+		page->task_tgid = current->tgid;
+		strlcpy(page->task_comm, current->comm, TASK_COMM_LEN);
+		if (current->flags & PF_KTHREAD)
+			page->task_type = 1;
+		page->zone_stat = item;
+	}
+#endif
 }
 EXPORT_SYMBOL(__inc_zone_page_state);
 
@@ -937,6 +949,100 @@ static int pagetypeinfo_showblockcount(struct seq_file *m, void *arg)
 	return 0;
 }
 
+#ifdef CONFIG_PAGE_OWNER
+static void pagetypeinfo_showmixedcount_print(struct seq_file *m,
+							pg_data_t *pgdat,
+							struct zone *zone)
+{
+	int mtype, pagetype;
+	unsigned long pfn;
+	unsigned long start_pfn = zone->zone_start_pfn;
+	unsigned long end_pfn = start_pfn + zone->spanned_pages;
+	unsigned long count[MIGRATE_TYPES] = { 0, };
+
+	/* Align PFNs to pageblock_nr_pages boundary */
+	pfn = start_pfn & ~(pageblock_nr_pages-1);
+
+	/*
+	 * Walk the zone in pageblock_nr_pages steps. If a page block spans
+	 * a zone boundary, it will be double counted between zones. This does
+	 * not matter as the mixed block count will still be correct
+	 */
+	for (; pfn < end_pfn; pfn += pageblock_nr_pages) {
+		struct page *page;
+		unsigned long offset = 0;
+
+		/* Do not read before the zone start, use a valid page */
+		if (pfn < start_pfn)
+			offset = start_pfn - pfn;
+
+		if (!pfn_valid(pfn + offset))
+			continue;
+
+		page = pfn_to_page(pfn + offset);
+		mtype = get_pageblock_migratetype(page);
+
+		/* Check the block for bad migrate types */
+		for (; offset < pageblock_nr_pages; offset++) {
+			/* Do not past the end of the zone */
+			if (pfn + offset >= end_pfn)
+				break;
+
+			if (!pfn_valid_within(pfn + offset))
+				continue;
+
+			page = pfn_to_page(pfn + offset);
+
+			/* Skip free pages */
+			if (PageBuddy(page)) {
+				offset += (1UL << page_order(page)) - 1UL;
+				continue;
+			}
+			if (page->order < 0)
+				continue;
+
+			pagetype = allocflags_to_migratetype(page->gfp_mask);
+			if (pagetype != mtype) {
+				if (is_migrate_cma(pagetype))
+					count[MIGRATE_MOVABLE]++;
+				else
+					count[mtype]++;
+				break;
+			}
+
+			/* Move to end of this allocation */
+			offset += (1 << page->order) - 1;
+		}
+	}
+
+	/* Print counts */
+	seq_printf(m, "Node %d, zone %8s ", pgdat->node_id, zone->name);
+	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++)
+		seq_printf(m, "%12lu ", count[mtype]);
+	seq_putc(m, '\n');
+}
+#endif /* CONFIG_PAGE_OWNER */
+
+/*
+ * Print out the number of pageblocks for each migratetype that contain pages
+ * of other types. This gives an indication of how well fallbacks are being
+ * contained by rmqueue_fallback(). It requires information from PAGE_OWNER
+ * to determine what is going on
+ */
+static void pagetypeinfo_showmixedcount(struct seq_file *m, pg_data_t *pgdat)
+{
+#ifdef CONFIG_PAGE_OWNER
+	int mtype;
+
+	seq_printf(m, "\n%-23s", "Number of mixed blocks ");
+	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++)
+		seq_printf(m, "%12s ", migratetype_names[mtype]);
+	seq_putc(m, '\n');
+
+	walk_zones_in_node(m, pgdat, pagetypeinfo_showmixedcount_print);
+#endif /* CONFIG_PAGE_OWNER */
+}
+
 /*
  * This prints out statistics in relation to grouping pages by mobility.
  * It is expensive to collect so do not constantly read the file.
@@ -954,6 +1060,7 @@ static int pagetypeinfo_show(struct seq_file *m, void *arg)
 	seq_putc(m, '\n');
 	pagetypeinfo_showfree(m, pgdat);
 	pagetypeinfo_showblockcount(m, pgdat);
+	pagetypeinfo_showmixedcount(m, pgdat);
 
 	return 0;
 }
@@ -1053,7 +1160,7 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 		   "\n  all_unreclaimable: %u"
 		   "\n  start_pfn:         %lu"
 		   "\n  inactive_ratio:    %u",
-		   zone->all_unreclaimable,
+		   !zone_reclaimable(zone),
 		   zone->zone_start_pfn,
 		   zone->inactive_ratio);
 	seq_putc(m, '\n');
@@ -1231,21 +1338,158 @@ static struct notifier_block __cpuinitdata vmstat_notifier =
 	{ &vmstat_cpuup_callback, NULL, 0 };
 #endif
 
+#ifdef CONFIG_PAGE_USAGE
+struct zone_pfn {
+	const char *name;
+	unsigned long start_pfn;
+	unsigned long end_pfn;
+	unsigned long current_pfn;
+};
+
+static struct zone_pfn zone_pfn_info[__MAX_NR_ZONES];
+
+static int current_zone;
+
+static char read_buf[PAGE_SIZE * 2];
+static int read_buf_index;
+static int is_open;
+
+#define TASK_COMM_LEN	16
+#define PAGE_USE_INFO_LENGTH	(32 + TASK_COMM_LEN)
+
+static ssize_t pageusageinfo_proc_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+{
+	ssize_t ret;
+	unsigned long pfn;
+	int zone_name_len;
+	struct page *page;
+	int pos;
+
+	if (!is_open)
+		return -EBADF;
+
+	ret = 0;
+
+	if (PAGE_SIZE < read_buf_index) {
+		read_buf_index %= PAGE_SIZE;
+		memcpy(&read_buf[0], &read_buf[PAGE_SIZE], read_buf_index);
+	} else {
+		read_buf_index = 0;
+	}
+
+	while (current_zone < __MAX_NR_ZONES) {
+		if (zone_pfn_info[current_zone].current_pfn == zone_pfn_info[current_zone].start_pfn) {
+			zone_name_len = strlen(zone_pfn_info[current_zone].name);
+			if (zone_name_len) {
+				strlcpy(&read_buf[read_buf_index], zone_pfn_info[current_zone].name, zone_name_len + 1);
+				read_buf_index += zone_name_len;
+
+				read_buf[read_buf_index] = '\n';
+				++read_buf_index;
+			}
+		}
+
+		for (pfn = zone_pfn_info[current_zone].current_pfn; pfn < zone_pfn_info[current_zone].end_pfn; ++pfn) {
+			if (!pfn_valid(pfn))
+				continue;
+
+			page = pfn_to_page(pfn);
+
+			pos = snprintf(&read_buf[read_buf_index], sizeof(read_buf) - read_buf_index,
+					"%06lu:%08lx,%05d,%s,%01d,%02d ",
+					pfn,
+					page->flags,
+					page->task_tgid,
+					page->task_comm,
+					page->task_type,
+					page->zone_stat);
+
+			read_buf_index += pos;
+
+			if (PAGE_SIZE <= read_buf_index) {
+				zone_pfn_info[current_zone].current_pfn = pfn + 1;
+				ret = PAGE_SIZE;
+				goto read;
+			}
+		}
+
+		read_buf[read_buf_index] = '\n';
+		++read_buf_index;
+
+		zone_pfn_info[current_zone].current_pfn = zone_pfn_info[current_zone].end_pfn;
+		++current_zone;
+	}
+
+	ret = read_buf_index;
+
+read:
+	strlcpy(buf, read_buf, ret + 1);
+
+	*ppos += ret;
+
+	return ret;
+}
+
+int pageusageinfo_proc_open(struct inode *inode, struct file *file)
+{
+	struct zone *z;
+	int i;
+
+	if (is_open)
+		return -EMFILE;
+
+	is_open = 1;
+
+	i = 0;
+	for_each_zone(z) {
+		zone_pfn_info[i].name = z->name;
+		zone_pfn_info[i].start_pfn = z->zone_start_pfn;
+		zone_pfn_info[i].end_pfn = zone_pfn_info[i].start_pfn + z->spanned_pages;
+		zone_pfn_info[i].current_pfn = z->zone_start_pfn;
+		++i;
+	}
+
+	current_zone = 0;
+	read_buf_index = 0;
+
+	return 0;
+}
+
+int pageusageinfo_proc_release(struct inode *inode, struct file *file)
+{
+	if (is_open)
+		is_open = 0;
+
+	return 0;
+}
+
+static const struct file_operations proc_pageuseinfo_file_operations = {
+	.read = pageusageinfo_proc_read,
+	.open = pageusageinfo_proc_open,
+	.release = pageusageinfo_proc_release,
+};
+#endif
+
 static int __init setup_vmstat(void)
 {
 #ifdef CONFIG_SMP
 	int cpu;
 
-	register_cpu_notifier(&vmstat_notifier);
+	cpu_notifier_register_begin();
+	__register_cpu_notifier(&vmstat_notifier);
 
 	for_each_online_cpu(cpu)
 		start_cpu_timer(cpu);
+	cpu_notifier_register_done();
 #endif
 #ifdef CONFIG_PROC_FS
 	proc_create("buddyinfo", S_IRUGO, NULL, &fragmentation_file_operations);
 	proc_create("pagetypeinfo", S_IRUGO, NULL, &pagetypeinfo_file_ops);
 	proc_create("vmstat", S_IRUGO, NULL, &proc_vmstat_file_operations);
 	proc_create("zoneinfo", S_IRUGO, NULL, &proc_zoneinfo_file_operations);
+#ifdef CONFIG_PAGE_USAGE
+	proc_create("pageusageinfo", S_IRUGO, NULL, &proc_pageuseinfo_file_operations);
+#endif
 #endif
 	return 0;
 }

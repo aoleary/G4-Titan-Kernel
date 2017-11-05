@@ -1104,7 +1104,6 @@ out:
 int ocfs2_setattr(struct dentry *dentry, struct iattr *attr)
 {
 	int status = 0, size_change;
-	int inode_locked = 0;
 	struct inode *inode = dentry->d_inode;
 	struct super_block *sb = inode->i_sb;
 	struct ocfs2_super *osb = OCFS2_SB(sb);
@@ -1150,7 +1149,6 @@ int ocfs2_setattr(struct dentry *dentry, struct iattr *attr)
 			mlog_errno(status);
 		goto bail_unlock_rw;
 	}
-	inode_locked = 1;
 
 	if (size_change && attr->ia_size != i_size_read(inode)) {
 		status = inode_newsize_ok(inode, attr->ia_size);
@@ -1231,10 +1229,7 @@ int ocfs2_setattr(struct dentry *dentry, struct iattr *attr)
 bail_commit:
 	ocfs2_commit_trans(osb, handle);
 bail_unlock:
-	if (status) {
-		ocfs2_inode_unlock(inode, 1);
-		inode_locked = 0;
-	}
+	ocfs2_inode_unlock(inode, 1);
 bail_unlock_rw:
 	if (size_change)
 		ocfs2_rw_unlock(inode, 1);
@@ -1250,8 +1245,6 @@ bail:
 		if (status < 0)
 			mlog_errno(status);
 	}
-	if (inode_locked)
-		ocfs2_inode_unlock(inode, 1);
 
 	return status;
 }
@@ -1506,8 +1499,7 @@ static int ocfs2_zero_partial_clusters(struct inode *inode,
 				       u64 start, u64 len)
 {
 	int ret = 0;
-	u64 tmpend = 0;
-	u64 end = start + len;
+	u64 tmpend, end = start + len;
 	struct ocfs2_super *osb = OCFS2_SB(inode->i_sb);
 	unsigned int csize = osb->s_clustersize;
 	handle_t *handle;
@@ -1539,31 +1531,18 @@ static int ocfs2_zero_partial_clusters(struct inode *inode,
 	}
 
 	/*
-	 * If start is on a cluster boundary and end is somewhere in another
-	 * cluster, we have not COWed the cluster starting at start, unless
-	 * end is also within the same cluster. So, in this case, we skip this
-	 * first call to ocfs2_zero_range_for_truncate() truncate and move on
-	 * to the next one.
+	 * We want to get the byte offset of the end of the 1st cluster.
 	 */
-	if ((start & (csize - 1)) != 0) {
-		/*
-		 * We want to get the byte offset of the end of the 1st
-		 * cluster.
-		 */
-		tmpend = (u64)osb->s_clustersize +
-			(start & ~(osb->s_clustersize - 1));
-		if (tmpend > end)
-			tmpend = end;
+	tmpend = (u64)osb->s_clustersize + (start & ~(osb->s_clustersize - 1));
+	if (tmpend > end)
+		tmpend = end;
 
-		trace_ocfs2_zero_partial_clusters_range1(
-			(unsigned long long)start,
-			(unsigned long long)tmpend);
+	trace_ocfs2_zero_partial_clusters_range1((unsigned long long)start,
+						 (unsigned long long)tmpend);
 
-		ret = ocfs2_zero_range_for_truncate(inode, handle, start,
-						    tmpend);
-		if (ret)
-			mlog_errno(ret);
-	}
+	ret = ocfs2_zero_range_for_truncate(inode, handle, start, tmpend);
+	if (ret)
+		mlog_errno(ret);
 
 	if (tmpend < end) {
 		/*

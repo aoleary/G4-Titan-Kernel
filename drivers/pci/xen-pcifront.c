@@ -51,7 +51,7 @@ struct pcifront_device {
 };
 
 struct pcifront_sd {
-	struct pci_sysdata sd;
+	int domain;
 	struct pcifront_device *pdev;
 };
 
@@ -65,9 +65,7 @@ static inline void pcifront_init_sd(struct pcifront_sd *sd,
 				    unsigned int domain, unsigned int bus,
 				    struct pcifront_device *pdev)
 {
-	/* Because we do not expose that information via XenBus. */
-	sd->sd.node = first_online_node;
-	sd->sd.domain = domain;
+	sd->domain = domain;
 	sd->pdev = pdev;
 }
 
@@ -465,8 +463,8 @@ static int pcifront_scan_root(struct pcifront_device *pdev,
 	dev_info(&pdev->xdev->dev, "Creating PCI Frontend Bus %04x:%02x\n",
 		 domain, bus);
 
-	bus_entry = kzalloc(sizeof(*bus_entry), GFP_KERNEL);
-	sd = kzalloc(sizeof(*sd), GFP_KERNEL);
+	bus_entry = kmalloc(sizeof(*bus_entry), GFP_KERNEL);
+	sd = kmalloc(sizeof(*sd), GFP_KERNEL);
 	if (!bus_entry || !sd) {
 		err = -ENOMEM;
 		goto err_out;
@@ -657,9 +655,9 @@ static void pcifront_do_aer(struct work_struct *data)
 	notify_remote_via_evtchn(pdev->evtchn);
 
 	/*in case of we lost an aer request in four lines time_window*/
-	smp_mb__before_clear_bit();
+	smp_mb__before_atomic();
 	clear_bit(_PDEVB_op_active, &pdev->flags);
-	smp_mb__after_clear_bit();
+	smp_mb__after_atomic();
 
 	schedule_pcifront_aer_op(pdev);
 

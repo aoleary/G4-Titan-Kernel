@@ -12,6 +12,7 @@
 #include <linux/debug_locks.h>
 #include <linux/delay.h>
 #include <linux/export.h>
+#include <soc/qcom/watchdog.h>
 
 void __raw_spin_lock_init(raw_spinlock_t *lock, const char *name,
 			  struct lock_class_key *key)
@@ -59,11 +60,18 @@ static void spin_dump(raw_spinlock_t *lock, const char *msg)
 		msg, raw_smp_processor_id(),
 		current->comm, task_pid_nr(current));
 	printk(KERN_EMERG " lock: %pS, .magic: %08x, .owner: %s/%d, "
-			".owner_cpu: %d\n",
+			".owner_cpu: %d, "
+			".raw_lock.owner: 0x%x, .raw_lock.next: 0x%x\n",
 		lock, lock->magic,
 		owner ? owner->comm : "<none>",
 		owner ? task_pid_nr(owner) : -1,
-		lock->owner_cpu);
+		lock->owner_cpu,
+		lock->raw_lock.owner, lock->raw_lock.next);
+#ifdef CONFIG_DEBUG_SPINLOCK_BITE_ON_BUG
+	msm_trigger_wdog_bite();
+#elif defined(CONFIG_DEBUG_SPINLOCK_PANIC_ON_BUG)
+	BUG();
+#endif
 	dump_stack();
 }
 
@@ -114,7 +122,7 @@ static void __spin_lock_debug(raw_spinlock_t *lock)
 		__delay(1);
 	}
 	/* lockup suspected: */
-	spin_dump(lock, "lockup suspected");
+	spin_bug(lock, "lockup suspected");
 #ifdef CONFIG_SMP
 	trigger_all_cpu_backtrace();
 #endif

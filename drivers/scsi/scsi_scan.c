@@ -804,6 +804,14 @@ static int scsi_add_lun(struct scsi_device *sdev, unsigned char *inq_result,
 	} else {
 		sdev->type = (inq_result[0] & 0x1f);
 		sdev->removable = (inq_result[1] & 0x80) >> 7;
+
+		/*
+		 * some devices may respond with wrong type for
+		 * well-known logical units. Force well-known type
+		 * to enumerate them correctly.
+		 */
+		if (scsi_is_wlun(sdev->lun) && (sdev->type != TYPE_WLUN))
+			sdev->type = TYPE_WLUN;
 	}
 
 	switch (sdev->type) {
@@ -819,6 +827,7 @@ static int scsi_add_lun(struct scsi_device *sdev, unsigned char *inq_result,
 	case TYPE_COMM:
 	case TYPE_RAID:
 	case TYPE_OSD:
+	case TYPE_WLUN:
 		sdev->writeable = 1;
 		break;
 	case TYPE_ROM:
@@ -949,6 +958,10 @@ static int scsi_add_lun(struct scsi_device *sdev, unsigned char *inq_result,
 		sdev->no_dif = 1;
 
 	transport_configure_device(&sdev->sdev_gendev);
+
+	/* The LLD can override auto suspend tunables in ->slave_configure() */
+	sdev->use_rpm_auto = 0;
+	sdev->autosuspend_delay = SCSI_DEFAULT_AUTOSUSPEND_DELAY;
 
 	if (sdev->host->hostt->slave_configure) {
 		ret = sdev->host->hostt->slave_configure(sdev);
@@ -1400,6 +1413,13 @@ static int scsi_report_lun_scan(struct scsi_target *starget, int bflags,
 	 */
 	memset(&scsi_cmd[1], 0, 5);
 
+	if (shost->report_wlus)
+		/*
+		 * Set "SELECT REPORT" field to 0x2 which will make device to
+		 * report well known logical units along with standard LUs.
+		 */
+		scsi_cmd[2] = 0x2;
+
 	/*
 	 * bytes 6 - 9: length of the command.
 	 */
@@ -1517,12 +1537,12 @@ static int scsi_report_lun_scan(struct scsi_target *starget, int bflags,
  out_err:
 	kfree(lun_data);
  out:
+	scsi_device_put(sdev);
 	if (scsi_device_created(sdev))
 		/*
 		 * the sdev we used didn't appear in the report luns scan
 		 */
 		__scsi_remove_device(sdev);
-	scsi_device_put(sdev);
 	return ret;
 }
 

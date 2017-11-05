@@ -50,7 +50,7 @@ static int probed;
  * Get a bit field at register value <v>, from bit <lo> to bit <hi>
  */
 #define GET_BITFIELD(v, lo, hi)	\
-	(((v) & ((1ULL << ((hi) - (lo) + 1)) - 1) << (lo)) >> (lo))
+	(((v) & GENMASK_ULL(hi, lo)) >> (lo))
 
 /*
  * sbridge Memory Controller Registers
@@ -1538,7 +1538,7 @@ static int sbridge_mce_check_error(struct notifier_block *nb, unsigned long val,
 
 	mci = get_mci_for_node_id(mce->socketid);
 	if (!mci)
-		return NOTIFY_DONE;
+		return NOTIFY_BAD;
 	pvt = mci->pvt_info;
 
 	/*

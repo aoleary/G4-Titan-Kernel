@@ -168,7 +168,7 @@ void __iomem *devm_request_and_ioremap(struct device *device,
 }
 EXPORT_SYMBOL(devm_request_and_ioremap);
 
-#ifdef CONFIG_HAS_IOPORT
+#ifdef CONFIG_HAS_IOPORT_MAP
 /*
  * Generic iomap devres
  */
@@ -227,7 +227,7 @@ void devm_ioport_unmap(struct device *dev, void __iomem *addr)
 			       devm_ioport_map_match, (void *)addr));
 }
 EXPORT_SYMBOL(devm_ioport_unmap);
-#endif /* CONFIG_HAS_IOPORT */
+#endif /* CONFIG_HAS_IOPORT_MAP */
 
 #ifdef CONFIG_PCI
 /*
@@ -423,7 +423,7 @@ void pcim_iounmap_regions(struct pci_dev *pdev, int mask)
 	if (!iomap)
 		return;
 
-	for (i = 0; i < PCIM_IOMAP_MAX; i++) {
+	for (i = 0; i < DEVICE_COUNT_RESOURCE; i++) {
 		if (!(mask & (1 << i)))
 			continue;
 

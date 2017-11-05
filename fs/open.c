@@ -34,6 +34,25 @@
 
 #include "internal.h"
 
+/* LGE_CHANGE_S
+ *
+ * do read/mmap profiling during booting
+ * in order to use the data as readahead args
+ *
+ * byungchul.park@lge.com 20120503
+ */
+#include "sreadahead_prof.h"
+/* LGE_CHAGE_E */
+
+
+#define ccaudit_permck(error, fname, flags) \
+{ \
+	if (unlikely((error == -EACCES) || (error == -EPERM) || (error == -EROFS))) \
+		if ((flags && (flags & (O_WRONLY | O_RDWR | O_TRUNC | O_APPEND))) || !flags ) \
+                       if(!strstr(fname,"@classes.dex.flock") && !strstr(current->comm,"qmuxd")) \
+                                printk("[CCAudit] %s error=%d file=%s flag=%d proc=%s parent=%s\n", __func__, (int)error, fname /*tmp->name*/, flags, current->comm, current->real_parent->comm); \
+}
+
 int do_truncate(struct dentry *dentry, loff_t length, unsigned int time_attrs,
 	struct file *filp)
 {
@@ -468,8 +487,10 @@ static int chmod_common(struct path *path, umode_t mode)
 	int error;
 
 	error = mnt_want_write(path->mnt);
-	if (error)
+	if (error){
+		ccaudit_permck(error, path->dentry->d_iname, 0);
 		return error;
+	}
 	mutex_lock(&inode->i_mutex);
 	error = security_path_chmod(path, mode);
 	if (error)
@@ -480,6 +501,7 @@ static int chmod_common(struct path *path, umode_t mode)
 out_unlock:
 	mutex_unlock(&inode->i_mutex);
 	mnt_drop_write(path->mnt);
+	ccaudit_permck(error, path->dentry->d_iname, 0);
 	return error;
 }
 
@@ -927,11 +949,22 @@ long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 		if (fd >= 0) {
 			struct file *f = do_filp_open(dfd, tmp, &op, lookup);
 			if (IS_ERR(f)) {
+				ccaudit_permck(PTR_ERR(f), tmp->name, flags);
 				put_unused_fd(fd);
 				fd = PTR_ERR(f);
 			} else {
 				fsnotify_open(f);
 				fd_install(fd, f);
+                /* LGE_CHANGE_S
+                 *
+                 * do read/mmap profiling during booting
+                 * in order to use the data as readahead args
+                 *
+                 * byungchul.park@lge.com 20120503
+                 */
+                sreadahead_prof( f, 0, 0);
+                /* LGE_CHANGE_E */
+
 			}
 		}
 		putname(tmp);
@@ -989,6 +1022,7 @@ int filp_close(struct file *filp, fl_owner_t id)
 		dnotify_flush(filp, id);
 		locks_remove_posix(filp, id);
 	}
+	security_file_close(filp);
 	fput(filp);
 	return retval;
 }

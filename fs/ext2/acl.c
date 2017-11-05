@@ -223,7 +223,7 @@ ext2_set_acl(struct inode *inode, int type, struct posix_acl *acl)
 		default:
 			return -EINVAL;
 	}
- 	if (acl) {
+	if (acl) {
 		value = ext2_acl_to_disk(acl, &size);
 		if (IS_ERR(value))
 			return (int)PTR_ERR(value);

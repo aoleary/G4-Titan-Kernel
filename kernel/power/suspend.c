@@ -25,7 +25,9 @@
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
 #include <linux/ftrace.h>
+#include <linux/rtc.h>
 #include <trace/events/power.h>
+#include <linux/wakeup_reason.h>
 
 #include "power.h"
 
@@ -138,7 +140,7 @@ static int suspend_prepare(suspend_state_t state)
 	error = suspend_freeze_processes();
 	if (!error)
 		return 0;
-
+	log_suspend_abort_reason("One or more tasks refusing to freeze");
 	suspend_stats.failed_freeze++;
 	dpm_save_failed_step(SUSPEND_FREEZE);
  Finish:
@@ -168,7 +170,8 @@ void __attribute__ ((weak)) arch_suspend_enable_irqs(void)
  */
 static int suspend_enter(suspend_state_t state, bool *wakeup)
 {
-	int error;
+	char suspend_abort[MAX_SUSPEND_ABORT_LEN];
+	int error, last_dev;
 
 	if (need_suspend_ops(state) && suspend_ops->prepare) {
 		error = suspend_ops->prepare();
@@ -178,7 +181,11 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 
 	error = dpm_suspend_end(PMSG_SUSPEND);
 	if (error) {
+		last_dev = suspend_stats.last_failed_dev + REC_FAILED_NUM - 1;
+		last_dev %= REC_FAILED_NUM;
 		printk(KERN_ERR "PM: Some devices failed to power down\n");
+		log_suspend_abort_reason("%s device failed to power down",
+			suspend_stats.failed_devs[last_dev]);
 		goto Platform_finish;
 	}
 
@@ -203,8 +210,10 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	}
 
 	error = disable_nonboot_cpus();
-	if (error || suspend_test(TEST_CPUS))
+	if (error || suspend_test(TEST_CPUS)) {
+		log_suspend_abort_reason("Disabling non-boot cpus failed");
 		goto Enable_cpus;
+	}
 
 	arch_suspend_disable_irqs();
 	BUG_ON(!irqs_disabled());
@@ -215,6 +224,11 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 		if (!(suspend_test(TEST_CORE) || *wakeup)) {
 			error = suspend_ops->enter(state);
 			events_check_enabled = false;
+		} else if (*wakeup) {
+			pm_get_active_wakeup_sources(suspend_abort,
+				MAX_SUSPEND_ABORT_LEN);
+			log_suspend_abort_reason(suspend_abort);
+			error = -EBUSY;
 		}
 		syscore_resume();
 	}
@@ -262,6 +276,7 @@ int suspend_devices_and_enter(suspend_state_t state)
 	error = dpm_suspend_start(PMSG_SUSPEND);
 	if (error) {
 		printk(KERN_ERR "PM: Some devices failed to suspend\n");
+		log_suspend_abort_reason("Some devices failed to suspend");
 		goto Recover_platform;
 	}
 	suspend_test_finish("suspend devices");
@@ -304,6 +319,61 @@ static void suspend_finish(void)
 	pm_restore_console();
 }
 
+#ifdef CONFIG_PM_SUSPEND_BG_SYNC
+static struct workqueue_struct *suspend_sync_wq;
+static void work_sync_fn(struct work_struct *work);
+static DECLARE_WORK(work_sync, work_sync_fn);
+static int suspend_sync_done;
+
+static void suspend_sync_wq_init(void)
+{
+	if (suspend_sync_wq)
+		return;
+
+	suspend_sync_wq = create_singlethread_workqueue("suspend_sync");
+}
+
+#define BG_SYNC_TIMEOUT 10	// 10*10ms
+static int bg_sync(void)
+{
+	int timeout_in_ms = BG_SYNC_TIMEOUT;
+	bool ret = false;
+
+	suspend_sync_wq_init();
+
+	if (work_busy(&work_sync)) {
+		printk(KERN_DEBUG "[bg_sync] work_sync already run\n");
+		return -EBUSY;
+	}
+
+	printk(KERN_DEBUG "[bg_sync] queue start\n");
+	suspend_sync_done = 0;
+	ret = queue_work(suspend_sync_wq, &work_sync);
+	printk(KERN_DEBUG "[bg_sync] queue end, ret = %s\n", ret?"true":"false");
+
+	while (timeout_in_ms--) {
+		if (suspend_sync_done)
+			break;
+		msleep(10);
+	}
+
+	if (suspend_sync_done) {
+		printk(KERN_INFO "[bg_sync] (%d * 10ms) ...\n", BG_SYNC_TIMEOUT - timeout_in_ms);
+		return 0;
+	}
+
+	return -EBUSY;
+}
+
+static void work_sync_fn(struct work_struct *work)
+{
+	printk(KERN_DEBUG "[bg_sync] sys_sync start\n");
+	sys_sync();
+	printk(KERN_DEBUG "[bg_sync] sys_sync done\n");
+	suspend_sync_done = 1;
+}
+#endif
+
 /**
  * enter_state - Do common work needed to enter system sleep state.
  * @state: System sleep state to enter.
@@ -333,9 +403,19 @@ static int enter_state(suspend_state_t state)
 	if (state == PM_SUSPEND_FREEZE)
 		freeze_begin();
 
+#ifdef CONFIG_PM_SUSPEND_BG_SYNC
+	printk(KERN_INFO "PM: Background Syncing filesystems ... \n");
+	if (bg_sync()) {
+		printk(KERN_INFO "[bg_sync] Syncing busy ...\n");
+		error = -EBUSY;
+		goto Unlock;
+	}
+	printk("PM: done.\n");
+#else
 	printk(KERN_INFO "PM: Syncing filesystems ... ");
 	sys_sync();
 	printk("done.\n");
+#endif
 
 	pr_debug("PM: Preparing system for %s sleep\n", pm_states[state].label);
 	error = suspend_prepare(state);
@@ -358,6 +438,18 @@ static int enter_state(suspend_state_t state)
 	return error;
 }
 
+static void pm_suspend_marker(char *annotation)
+{
+	struct timespec ts;
+	struct rtc_time tm;
+
+	getnstimeofday(&ts);
+	rtc_time_to_tm(ts.tv_sec, &tm);
+	pr_info("PM: suspend %s %d-%02d-%02d %02d:%02d:%02d.%09lu UTC\n",
+		annotation, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+		tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec);
+}
+
 /**
  * pm_suspend - Externally visible function for suspending the system.
  * @state: System sleep state to enter.
@@ -372,6 +464,7 @@ int pm_suspend(suspend_state_t state)
 	if (state <= PM_SUSPEND_ON || state >= PM_SUSPEND_MAX)
 		return -EINVAL;
 
+	pm_suspend_marker("entry");
 	error = enter_state(state);
 	if (error) {
 		suspend_stats.fail++;
@@ -379,6 +472,7 @@ int pm_suspend(suspend_state_t state)
 	} else {
 		suspend_stats.success++;
 	}
+	pm_suspend_marker("exit");
 	return error;
 }
 EXPORT_SYMBOL(pm_suspend);

@@ -380,6 +380,33 @@ int rtc_set_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 }
 EXPORT_SYMBOL_GPL(rtc_set_alarm);
 
+#ifdef CONFIG_LGE_PM_RTC_PWROFF_ALARM
+int rtc_set_po_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
+{
+	int err;
+
+	err = rtc_valid_tm(&alarm->time);
+
+	if (err != 0) {
+		return err;
+	}
+
+	if (!rtc->ops) {
+		dev_err(&rtc->dev, "[%s] ops not exist\n", __func__);
+		err = -ENODEV;
+	} else if (!rtc->ops->set_po_alarm) {
+		dev_err(&rtc->dev, "[%s] bootalarm func not exist\n", __func__);
+		err = -EINVAL;
+	} else
+		err = rtc->ops->set_po_alarm(rtc->dev.parent, alarm);
+
+	pr_info("[%s] Set Power Off Alarm\n", __func__);
+
+	return err;
+}
+EXPORT_SYMBOL_GPL(rtc_set_po_alarm);
+#endif
+
 /* Called once per device from rtc_device_register */
 int rtc_initialize_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 {
@@ -763,23 +790,9 @@ EXPORT_SYMBOL_GPL(rtc_irq_set_freq);
  */
 static int rtc_timer_enqueue(struct rtc_device *rtc, struct rtc_timer *timer)
 {
-	struct timerqueue_node *next = timerqueue_getnext(&rtc->timerqueue);
-	struct rtc_time tm;
-	ktime_t now;
-
 	timer->enabled = 1;
-	__rtc_read_time(rtc, &tm);
-	now = rtc_tm_to_ktime(tm);
-
-	/* Skip over expired timers */
-	while (next) {
-		if (next->expires.tv64 >= now.tv64)
-			break;
-		next = timerqueue_iterate_next(next);
-	}
-
 	timerqueue_add(&rtc->timerqueue, &timer->node);
-	if (!next) {
+	if (&timer->node == timerqueue_getnext(&rtc->timerqueue)) {
 		struct rtc_wkalrm alarm;
 		int err;
 		alarm.time = rtc_ktime_to_tm(timer->node.expires);

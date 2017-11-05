@@ -57,6 +57,9 @@ struct arm_pmu {
 	void			(*start)(void);
 	void			(*stop)(void);
 	void			(*reset)(void *);
+	int			(*request_irq)(struct arm_pmu *,
+					       irq_handler_t handler);
+	void			(*free_irq)(struct arm_pmu *);
 	int			(*map_event)(struct perf_event *event);
 	int			num_events;
 	atomic_t		active_events;
@@ -64,6 +67,8 @@ struct arm_pmu {
 	u64			max_period;
 	struct platform_device	*plat_device;
 	struct pmu_hw_events	*(*get_hw_events)(void);
+	struct notifier_block   hotplug_nb;
+	struct notifier_block   cpu_pm_nb;
 };
 
 #define to_arm_pmu(p) (container_of(p, struct arm_pmu, pmu))

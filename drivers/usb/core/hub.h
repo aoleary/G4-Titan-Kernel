@@ -103,7 +103,7 @@ extern int usb_hub_create_port_device(struct usb_hub *hub,
 		int port1);
 extern void usb_hub_remove_port_device(struct usb_hub *hub,
 		int port1);
-extern int usb_hub_set_port_power(struct usb_device *hdev,
+extern int usb_hub_set_port_power(struct usb_device *hdev, struct usb_hub *hub,
 		int port1, bool set);
 extern struct usb_hub *usb_hub_to_struct_hub(struct usb_device *hdev);
 extern int hub_port_debounce(struct usb_hub *hub, int port1,
@@ -123,3 +123,6 @@ static inline int hub_port_debounce_be_stable(struct usb_hub *hub,
 	return hub_port_debounce(hub, port1, false);
 }
 
+#if defined(CONFIG_LGE_TOUCH_CORE)
+extern void touch_notify_connect(u32 type);
+#endif

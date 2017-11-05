@@ -25,7 +25,7 @@
  */
 
 #ifndef ARCH_NR_GPIOS
-#define ARCH_NR_GPIOS		256
+#define ARCH_NR_GPIOS		1024
 #endif
 
 /*
@@ -195,6 +195,10 @@ extern int __gpio_to_irq(unsigned gpio);
 extern int gpio_request_one(unsigned gpio, unsigned long flags, const char *label);
 extern int gpio_request_array(const struct gpio *array, size_t num);
 extern void gpio_free_array(const struct gpio *array, size_t num);
+
+#ifdef CONFIG_LGE_PM_IDTP9017_WIRELESS_CHARGER
+extern int check_gpio_status(unsigned gpio);
+#endif
 
 #ifdef CONFIG_GPIO_SYSFS
 

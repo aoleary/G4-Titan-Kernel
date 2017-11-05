@@ -136,7 +136,7 @@ static struct gpio_desc *gpio_to_desc(unsigned gpio)
  */
 static int desc_to_gpio(const struct gpio_desc *desc)
 {
-	return desc->chip->base + gpio_chip_hwgpio(desc);
+	return desc - &gpio_desc[0];
 }
 
 
@@ -1242,14 +1242,13 @@ int gpiochip_add(struct gpio_chip *chip)
 		}
 	}
 
+	spin_unlock_irqrestore(&gpio_lock, flags);
+
 #ifdef CONFIG_PINCTRL
 	INIT_LIST_HEAD(&chip->pin_ranges);
 #endif
 
 	of_gpiochip_add(chip);
-
-unlock:
-	spin_unlock_irqrestore(&gpio_lock, flags);
 
 	if (status)
 		goto fail;
@@ -1263,6 +1262,9 @@ unlock:
 		chip->label ? : "generic");
 
 	return 0;
+
+unlock:
+	spin_unlock_irqrestore(&gpio_lock, flags);
 fail:
 	/* failures here can mean systems won't boot... */
 	pr_err("gpiochip_add: gpios %d..%d (%s) failed to register\n",
@@ -1524,6 +1526,20 @@ void gpio_free(unsigned gpio)
 	gpiod_free(gpio_to_desc(gpio));
 }
 EXPORT_SYMBOL_GPL(gpio_free);
+
+#ifdef CONFIG_LGE_PM_IDTP9017_WIRELESS_CHARGER
+int check_gpio_status(unsigned gpio) {
+	struct gpio_desc *desc;
+
+	desc = gpio_to_desc(gpio);
+
+	if (desc->label == NULL)
+		return -1;
+	else
+		return 1;
+}
+EXPORT_SYMBOL_GPL(check_gpio_status);
+#endif
 
 /**
  * gpio_request_one - request a single GPIO with initial configuration
