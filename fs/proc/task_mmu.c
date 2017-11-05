@@ -11,9 +11,7 @@
 #include <linux/rmap.h>
 #include <linux/swap.h>
 #include <linux/swapops.h>
-#ifdef CONFIG_PROCESS_RECLAIM
 #include <linux/mm_inline.h>
-#endif
 
 #include <asm/elf.h>
 #include <asm/uaccess.h>
@@ -215,7 +213,7 @@ static void *m_start(struct seq_file *m, loff_t *pos)
 	if (!priv->task)
 		return ERR_PTR(-ESRCH);
 
-	mm = mm_access(priv->task, PTRACE_MODE_READ);
+	mm = mm_access(priv->task, PTRACE_MODE_READ_FSCREDS);
 	if (!mm || IS_ERR(mm))
 		return mm;
 	down_read(&mm->mmap_sem);
@@ -323,11 +321,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 
 	/* We don't show the stack guard page in /proc/maps */
 	start = vma->vm_start;
-	if (stack_guard_page_start(vma, start))
-		start += PAGE_SIZE;
 	end = vma->vm_end;
-	if (stack_guard_page_end(vma, end))
-		end -= PAGE_SIZE;
 
 	seq_setwidth(m, 25 + sizeof(void *) * 6 - 1);
 	seq_printf(m, "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu ",
@@ -838,6 +832,24 @@ static ssize_t clear_refs_write(struct file *file, const char __user *buf,
 		}
 
 		down_read(&mm->mmap_sem);
+		/*
+		 * Avoid to modify vma->vm_flags
+		 * without locked ops while the
+		 * coredump reads the vm_flags.
+		 */
+		if (!mmget_still_valid(mm)) {
+			/*
+			 * Silently return "count"
+			 * like if get_task_mm()
+			 * failed. FIXME: should this
+			 * function have returned
+			 * -ESRCH if get_task_mm()
+			 * failed like if
+			 * get_proc_task() fails?
+			 */
+			up_write(&mm->mmap_sem);
+			goto out_mm;
+		}
 		for (vma = mm->mmap; vma; vma = vma->vm_next) {
 			clear_refs_walk.private = vma;
 			if (is_vm_hugetlb_page(vma))
@@ -1130,7 +1142,7 @@ static ssize_t pagemap_read(struct file *file, char __user *buf,
 	if (!pm.buffer)
 		goto out_task;
 
-	mm = mm_access(task, PTRACE_MODE_READ);
+	mm = mm_access(task, PTRACE_MODE_READ_FSCREDS);
 	ret = PTR_ERR(mm);
 	if (!mm || IS_ERR(mm))
 		goto out_free;
@@ -1264,30 +1276,6 @@ enum reclaim_type {
 	RECLAIM_RANGE,
 };
 
-ssize_t reclaim_walk_mm(struct task_struct *task, char *type_buf)
-{
-
-	struct mm_struct *mm;
-	struct vm_area_struct *vma;
-	enum reclaim_type type;
-
-	if (!strcmp(type_buf, "file"))
-		type = RECLAIM_FILE;
-	else if (!strcmp(type_buf, "anon"))
-		type = RECLAIM_ANON;
-	else if (!strcmp(type_buf, "all"))
-		type = RECLAIM_ALL;
-	else
-		return -EINVAL;
-
-		if(!down_read_trylock(&mm->mmap_sem)) {
-			mmput(mm);
-			return -EINVAL;
-		}
-
-	return 0;
-}
-	
 static ssize_t reclaim_write(struct file *file, const char __user *buf,
 				size_t count, loff_t *ppos)
 {
@@ -1306,6 +1294,15 @@ static ssize_t reclaim_write(struct file *file, const char __user *buf,
 		return -EFAULT;
 
 	type_buf = strstrip(buffer);
+	if (!strcmp(type_buf, "file"))
+		type = RECLAIM_FILE;
+	else if (!strcmp(type_buf, "anon"))
+		type = RECLAIM_ANON;
+	else if (!strcmp(type_buf, "all"))
+		type = RECLAIM_ALL;
+	else
+		return -EINVAL;
+
 	task = get_proc_task(file->f_path.dentry->d_inode);
 	if (!task)
 		return -ESRCH;

@@ -169,7 +169,7 @@ hugetlb_get_unmapped_area(struct file *file, unsigned long addr,
 		addr = ALIGN(addr, huge_page_size(h));
 		vma = find_vma(mm, addr);
 		if (TASK_SIZE - len >= addr &&
-		    (!vma || addr + len <= vma->vm_start))
+		    (!vma || addr + len <= vm_start_gap(vma)))
 			return addr;
 	}
 
@@ -1006,6 +1006,11 @@ static int __init init_hugetlbfs_fs(void)
 	struct hstate *h;
 	int error;
 	int i;
+
+	if (!hugepages_supported()) {
+		pr_info("hugetlbfs: disabling because there are no supported hugepage sizes\n");
+		return -ENOTSUPP;
+	}
 
 	error = bdi_init(&hugetlbfs_backing_dev_info);
 	if (error)

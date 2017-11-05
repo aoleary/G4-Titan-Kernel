@@ -75,6 +75,8 @@ struct kthread_work {
 	kthread_work_func_t	func;
 	wait_queue_head_t	done;
 	struct kthread_worker	*worker;
+	/* Number of canceling calls that are running at the moment. */
+	int			canceling;
 };
 
 #define KTHREAD_WORKER_INIT(worker)	{				\
@@ -130,11 +132,26 @@ extern void __init_kthread_worker(struct kthread_worker *worker,
 		init_waitqueue_head(&(work)->done);			\
 	} while (0)
 
+/*
+ * Returns true when the work could not be queued at the moment.
+ * It happens when it is already pending in a worker list
+ * or when it is being cancelled.
+ */
+static inline bool queuing_blocked(struct kthread_worker *worker,
+                                   struct kthread_work *work)
+{
+        lockdep_assert_held(&worker->lock);
+
+        return !list_empty(&work->node) || work->canceling;
+}
+
 int kthread_worker_fn(void *worker_ptr);
 
 bool queue_kthread_work(struct kthread_worker *worker,
 			struct kthread_work *work);
 void flush_kthread_work(struct kthread_work *work);
 void flush_kthread_worker(struct kthread_worker *worker);
+
+bool kthread_cancel_work_sync(struct kthread_work *work);
 
 #endif /* _LINUX_KTHREAD_H */

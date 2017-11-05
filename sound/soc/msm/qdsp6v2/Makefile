@@ -1,5 +1,5 @@
 snd-soc-qdsp6v2-objs += msm-dai-q6-v2.o msm-pcm-q6-v2.o msm-pcm-routing-v2.o \
-			msm-compress-q6-v2.o msm-compr-q6-v2.o \
+			msm-compress-q6-v2.o \
 			msm-pcm-lpa-v2.o \
 			msm-pcm-afe-v2.o msm-pcm-voip-v2.o \
 			msm-pcm-voice-v2.o msm-dai-q6-hdmi-v2.o \
@@ -18,3 +18,4 @@ obj-y += audio_calibration.o audio_cal_utils.o q6adm.o q6afe.o q6asm.o \
 	q6audio-v2.o q6voice.o q6core.o rtac.o q6lsm.o audio_slimslave.o msm-pcm-q6-noirq.o
 ocmem-audio-objs += audio_ocmem.o
 obj-$(CONFIG_AUDIO_OCMEM) += ocmem-audio.o
+ccflags-y := -Os

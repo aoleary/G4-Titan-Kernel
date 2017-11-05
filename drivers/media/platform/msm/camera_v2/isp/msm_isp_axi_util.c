@@ -1318,7 +1318,7 @@ static int msm_isp_cfg_ping_pong_address(struct vfe_device *vfe_dev,
 				!dual_vfe_res->axi_data[ISP_VFE0] ||
 				!dual_vfe_res->vfe_base[ISP_VFE1] ||
 				!dual_vfe_res->axi_data[ISP_VFE1]) {
-				pr_err("%s:%d failed vfe0 %p %p vfe %p %p\n",
+				pr_err("%s:%d failed vfe0 %pK %pK vfe %pK %pK\n",
 					__func__, __LINE__,
 					dual_vfe_res->vfe_base[ISP_VFE0],
 					dual_vfe_res->axi_data[ISP_VFE0],
@@ -1534,7 +1534,7 @@ int msm_isp_drop_frame(struct vfe_device *vfe_dev,
 	int rc = -1;
 
 	if (!vfe_dev || !stream_info || !ts || !output_info) {
-		pr_err("%s %d  vfe_dev %p stream_info %p ts %p op_info %p\n",
+		pr_err("%s %d  vfe_dev %pK stream_info %pK ts %pK op_info %pK\n",
 			 __func__, __LINE__, vfe_dev, stream_info, ts,
 			output_info);
 		return -EINVAL;
@@ -1588,6 +1588,10 @@ static enum msm_isp_camif_update_state
 	cur_pix_stream_cnt =
 		axi_data->src_info[VFE_PIX_0].pix_stream_count +
 		axi_data->src_info[VFE_PIX_0].raw_stream_count;
+
+	if (stream_cfg_cmd->num_streams > VFE_AXI_SRC_MAX)
+		return NO_UPDATE;
+
 	for (i = 0; i < stream_cfg_cmd->num_streams; i++) {
 		stream_info =
 			&axi_data->stream_info[
@@ -1849,7 +1853,7 @@ int msm_isp_axi_reset(struct vfe_device *vfe_dev,
 	uint32_t bufq_handle = 0, bufq_id = 0;
 
 	if (!reset_cmd) {
-		pr_err("%s: NULL pointer reset cmd %p\n", __func__, reset_cmd);
+		pr_err("%s: NULL pointer reset cmd %pK\n", __func__, reset_cmd);
 		rc = -1;
 		return rc;
 	}
@@ -1879,7 +1883,7 @@ int msm_isp_axi_reset(struct vfe_device *vfe_dev,
 			bufq = vfe_dev->buf_mgr->ops->get_bufq(vfe_dev->buf_mgr,
 				bufq_handle);
 			if (!bufq) {
-				pr_err("%s: bufq null %p by handle %x\n",
+				pr_err("%s: bufq null %pK by handle %x\n",
 					__func__, bufq, bufq_handle);
 				continue;
 			}
@@ -1986,10 +1990,11 @@ static int msm_isp_start_axi_stream(struct vfe_device *vfe_dev,
 		vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id = 0;
 		vfe_dev->axi_data.src_info[VFE_PIX_0].camif_sof_frame_id = 0;
 	}
-
+	mutex_lock(&vfe_dev->buf_mgr->lock);
 	for (i = 0; i < stream_cfg_cmd->num_streams; i++) {
 		if (HANDLE_TO_IDX(stream_cfg_cmd->stream_handle[i]) >=
 			VFE_AXI_SRC_MAX) {
+			mutex_unlock(&vfe_dev->buf_mgr->lock);
 			return -EINVAL;
 		}
 		stream_info = &axi_data->stream_info[
@@ -1999,6 +2004,7 @@ static int msm_isp_start_axi_stream(struct vfe_device *vfe_dev,
 				SRC_TO_INTF(stream_info->stream_src)].active;
 		else {
 			ISP_DBG("%s: invalid src info index\n", __func__);
+			mutex_unlock(&vfe_dev->buf_mgr->lock);
 			return -EINVAL;
 		}
 
@@ -2010,6 +2016,7 @@ static int msm_isp_start_axi_stream(struct vfe_device *vfe_dev,
 			pr_err("%s: No buffer for stream%d\n", __func__,
 				HANDLE_TO_IDX(
 				stream_cfg_cmd->stream_handle[i]));
+			mutex_unlock(&vfe_dev->buf_mgr->lock);
 			return rc;
 		}
 
@@ -2034,6 +2041,7 @@ static int msm_isp_start_axi_stream(struct vfe_device *vfe_dev,
 				stream_info->stream_src)].frame_id = 0;
 		}
 	}
+	mutex_unlock(&vfe_dev->buf_mgr->lock);
 	msm_isp_update_stream_bandwidth(vfe_dev);
 	vfe_dev->hw_info->vfe_ops.axi_ops.reload_wm(vfe_dev,
 		vfe_dev->vfe_base, wm_reload_mask);
@@ -2578,9 +2586,11 @@ int msm_isp_update_axi_stream(struct vfe_device *vfe_dev, void *arg)
 			break;
 		}
 		case UPDATE_STREAM_REQUEST_FRAMES: {
+			mutex_lock(&vfe_dev->buf_mgr->lock);
 			rc = msm_isp_request_frame(vfe_dev, stream_info,
 				update_info->user_stream_id,
 				update_info->frame_id);
+			mutex_unlock(&vfe_dev->buf_mgr->lock);
 			if (rc)
 				pr_err("%s failed to request frame!\n",
 					__func__);
@@ -2659,7 +2669,7 @@ void msm_isp_process_axi_irq(struct vfe_device *vfe_dev,
 			stream_info = &axi_data->stream_info[stream_idx];
 
 			if (stream_info->state == INACTIVE) {
-				pr_warn("%s: Warning! Stream already inactive. Drop irq handling\n",
+				pr_debug("%s: Warning! Stream already inactive. Drop irq handling\n",
 					__func__);
 				continue;
 			}
@@ -2708,7 +2718,7 @@ void msm_isp_process_axi_irq(struct vfe_device *vfe_dev,
 			stream_info = &axi_data->stream_info[stream_idx];
 
 			if (stream_info->state == INACTIVE) {
-				pr_warn("%s: Warning! Stream already inactive. Drop irq handling\n",
+				pr_debug("%s: Warning! Stream already inactive. Drop irq handling\n",
 					__func__);
 				continue;
 			}
@@ -2754,7 +2764,7 @@ void msm_isp_axi_disable_all_wm(struct vfe_device *vfe_dev)
 	int i, j;
 
 	if (!vfe_dev || !axi_data) {
-		pr_err("%s: error %p %p\n", __func__, vfe_dev, axi_data);
+		pr_err("%s: error %pK %pK\n", __func__, vfe_dev, axi_data);
 		return;
 	}
 

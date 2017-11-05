@@ -469,7 +469,7 @@ static int __inet_insert_ifa(struct in_ifaddr *ifa, struct nlmsghdr *nlh,
 	inet_hash_insert(dev_net(in_dev->dev), ifa);
 
 	cancel_delayed_work(&check_lifetime_work);
-	schedule_delayed_work(&check_lifetime_work, 0);
+	queue_delayed_work(system_power_efficient_wq,&check_lifetime_work, 0);
 
 	/* Send message first, then call notifier.
 	   Notifier will trigger FIB update, so that
@@ -678,7 +678,7 @@ static void check_lifetime(struct work_struct *work)
 	if (time_before(next_sched, now + ADDRCONF_TIMER_FUZZ_MAX))
 		next_sched = now + ADDRCONF_TIMER_FUZZ_MAX;
 
-	schedule_delayed_work(&check_lifetime_work, next_sched - now);
+	queue_delayed_work(system_power_efficient_wq,&check_lifetime_work, next_sched - now);
 }
 
 static void set_ifa_lifetime(struct in_ifaddr *ifa, __u32 valid_lft,
@@ -834,7 +834,7 @@ static int inet_rtm_newaddr(struct sk_buff *skb, struct nlmsghdr *nlh)
 		ifa = ifa_existing;
 		set_ifa_lifetime(ifa, valid_lft, prefered_lft);
 		cancel_delayed_work(&check_lifetime_work);
-		schedule_delayed_work(&check_lifetime_work, 0);
+		queue_delayed_work(system_power_efficient_wq,&check_lifetime_work, 0);
 		rtmsg_ifa(RTM_NEWADDR, ifa, nlh, NETLINK_CB(skb).portid);
 		blocking_notifier_call_chain(&inetaddr_chain, NETDEV_UP, ifa);
 	}
@@ -1316,11 +1316,6 @@ skip:
 	}
 }
 
-static bool inetdev_valid_mtu(unsigned int mtu)
-{
-	return mtu >= 68;
-}
-
 static void inetdev_send_gratuitous_arp(struct net_device *dev,
 					struct in_device *in_dev)
 
@@ -1696,6 +1691,8 @@ static int inet_netconf_msgsize_devconf(int type)
 		size += nla_total_size(4);
 	if (type == -1 || type == NETCONFA_MC_FORWARDING)
 		size += nla_total_size(4);
+	if (type == -1 || type == NETCONFA_PROXY_NEIGH)
+		size += nla_total_size(4);
 
 	return size;
 }
@@ -1731,6 +1728,10 @@ static int inet_netconf_fill_devconf(struct sk_buff *skb, int ifindex,
 	if ((type == -1 || type == NETCONFA_MC_FORWARDING) &&
 	    nla_put_s32(skb, NETCONFA_MC_FORWARDING,
 			IPV4_DEVCONF(*devconf, MC_FORWARDING)) < 0)
+		goto nla_put_failure;
+	if ((type == -1 || type == NETCONFA_PROXY_NEIGH) &&
+	    nla_put_s32(skb, NETCONFA_PROXY_NEIGH,
+			IPV4_DEVCONF(*devconf, PROXY_ARP)) < 0)
 		goto nla_put_failure;
 
 	return nlmsg_end(skb, nlh);
@@ -1769,6 +1770,7 @@ static const struct nla_policy devconf_ipv4_policy[NETCONFA_MAX+1] = {
 	[NETCONFA_IFINDEX]	= { .len = sizeof(int) },
 	[NETCONFA_FORWARDING]	= { .len = sizeof(int) },
 	[NETCONFA_RP_FILTER]	= { .len = sizeof(int) },
+	[NETCONFA_PROXY_NEIGH]	= { .len = sizeof(int) },
 };
 
 static int inet_netconf_get_devconf(struct sk_buff *in_skb,
@@ -1962,6 +1964,7 @@ static int devinet_conf_proc(ctl_table *ctl, int write,
 		struct ipv4_devconf *cnf = ctl->extra1;
 		struct net *net = ctl->extra2;
 		int i = (int *)ctl->data - cnf->data;
+		int ifindex;
 
 		set_bit(i, cnf->state);
 
@@ -1973,7 +1976,6 @@ static int devinet_conf_proc(ctl_table *ctl, int write,
 				rt_cache_flush(net);
 		if (i == IPV4_DEVCONF_RP_FILTER - 1 &&
 		    new_value != old_value) {
-			int ifindex;
 
 			if (cnf == net->ipv4.devconf_dflt)
 				ifindex = NETCONFA_IFINDEX_DEFAULT;
@@ -1987,6 +1989,22 @@ static int devinet_conf_proc(ctl_table *ctl, int write,
 			}
 			inet_netconf_notify_devconf(net, NETCONFA_RP_FILTER,
 						    ifindex, cnf);
+		}
+		if (i == IPV4_DEVCONF_PROXY_ARP - 1 &&
+		    new_value != old_value) {
+
+                        if (cnf == net->ipv4.devconf_dflt)
+                                ifindex = NETCONFA_IFINDEX_DEFAULT;
+                        else if (cnf == net->ipv4.devconf_all)
+                                ifindex = NETCONFA_IFINDEX_ALL;
+                        else {
+                                struct in_device *idev =
+                                        container_of(cnf, struct in_device,
+                                                     cnf);
+                                ifindex = idev->dev->ifindex;
+                        }
+                        inet_netconf_notify_devconf(net, NETCONFA_PROXY_NEIGH,
+                                                    ifindex, cnf);
 		}
 	}
 
@@ -2103,7 +2121,6 @@ static struct devinet_sysctl_table {
 		DEVINET_SYSCTL_RW_ENTRY(ARP_ACCEPT, "arp_accept"),
 		DEVINET_SYSCTL_RW_ENTRY(ARP_NOTIFY, "arp_notify"),
 		DEVINET_SYSCTL_RW_ENTRY(PROXY_ARP_PVLAN, "proxy_arp_pvlan"),
-
 		DEVINET_SYSCTL_FLUSHING_ENTRY(NOXFRM, "disable_xfrm"),
 		DEVINET_SYSCTL_FLUSHING_ENTRY(NOPOLICY, "disable_policy"),
 		DEVINET_SYSCTL_FLUSHING_ENTRY(FORCE_IGMP_VERSION,
@@ -2112,6 +2129,10 @@ static struct devinet_sysctl_table {
 					      "promote_secondaries"),
 		DEVINET_SYSCTL_FLUSHING_ENTRY(ROUTE_LOCALNET,
 					      "route_localnet"),
+		DEVINET_SYSCTL_FLUSHING_ENTRY(DROP_UNICAST_IN_L2_MULTICAST,
+					      "drop_unicast_in_l2_multicast"),
+                DEVINET_SYSCTL_RW_ENTRY(DROP_GRATUITOUS_ARP,
+                                        "drop_gratuitous_arp"),
 	},
 };
 
@@ -2299,7 +2320,7 @@ void __init devinet_init(void)
 	register_gifconf(PF_INET, inet_gifconf);
 	register_netdevice_notifier(&ip_netdev_notifier);
 
-	schedule_delayed_work(&check_lifetime_work, 0);
+	queue_delayed_work(system_power_efficient_wq,&check_lifetime_work, 0);
 
 	rtnl_af_register(&inet_af_ops);
 

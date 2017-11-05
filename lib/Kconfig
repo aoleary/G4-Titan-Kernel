@@ -45,6 +45,9 @@ config STMP_DEVICE
 config PERCPU_RWSEM
 	boolean
 
+config ARCH_HAS_FAST_MULTIPLIER
+	bool
+
 config CRC_CCITT
 	tristate "CRC-CCITT functions"
 	help
@@ -173,6 +176,13 @@ config AUDIT_GENERIC
 	bool
 	depends on AUDIT && !AUDIT_ARCH
 	default y
+
+config RANDOM32_SELFTEST
+	bool "PRNG perform self test on init"
+	default n
+	help
+	  This option enables the 32 bit PRNG library functions to perform a
+	  self test on initialization.
 
 #
 # compression support is select'ed if needed

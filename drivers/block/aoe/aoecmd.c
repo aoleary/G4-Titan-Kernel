@@ -367,7 +367,6 @@ aoecmd_ata_rw(struct aoedev *d)
 {
 	struct frame *f;
 	struct buf *buf;
-	struct aoetgt *t;
 	struct sk_buff *skb;
 	struct sk_buff_head queue;
 	ulong bcnt, fbcnt;
@@ -378,7 +377,6 @@ aoecmd_ata_rw(struct aoedev *d)
 	f = newframe(d);
 	if (f == NULL)
 		return 0;
-	t = *d->tgt;
 	bcnt = d->maxbcnt;
 	if (bcnt == 0)
 		bcnt = DEFAULTBCNT;
@@ -472,7 +470,6 @@ resend(struct aoedev *d, struct frame *f)
 	struct sk_buff *skb;
 	struct sk_buff_head queue;
 	struct aoe_hdr *h;
-	struct aoe_atahdr *ah;
 	struct aoetgt *t;
 	char buf[128];
 	u32 n;
@@ -487,7 +484,6 @@ resend(struct aoedev *d, struct frame *f)
 		return;
 	}
 	h = (struct aoe_hdr *) skb_mac_header(skb);
-	ah = (struct aoe_atahdr *) (h+1);
 
 	if (!(f->flags & FFL_PROBE)) {
 		snprintf(buf, sizeof(buf),
@@ -893,16 +889,10 @@ bio_pageinc(struct bio *bio)
 	int i;
 
 	bio_for_each_segment(bv, bio, i) {
-		page = bv->bv_page;
 		/* Non-zero page count for non-head members of
-		 * compound pages is no longer allowed by the kernel,
-		 * but this has never been seen here.
+		 * compound pages is no longer allowed by the kernel.
 		 */
-		if (unlikely(PageCompound(page)))
-			if (compound_head(page) != page) {
-				pr_crit("page tail used for block I/O\n");
-				BUG();
-			}
+		page = compound_head(bv.bv_page);
 		atomic_inc(&page->_count);
 	}
 }
@@ -911,10 +901,13 @@ static void
 bio_pagedec(struct bio *bio)
 {
 	struct bio_vec *bv;
+	struct page *page;
 	int i;
 
-	bio_for_each_segment(bv, bio, i)
-		atomic_dec(&bv->bv_page->_count);
+	bio_for_each_segment(bv, bio, i) {
+		page = compound_head(bv.bv_page);
+		atomic_dec(&page->_count);
+	}
 }
 
 static void
@@ -923,10 +916,10 @@ bufinit(struct buf *buf, struct request *rq, struct bio *bio)
 	memset(buf, 0, sizeof(*buf));
 	buf->rq = rq;
 	buf->bio = bio;
-	buf->resid = bio->bi_size;
-	buf->sector = bio->bi_sector;
+	buf->resid = bio->bi_iter.bi_size;
+	buf->sector = bio->bi_iter.bi_sector;
 	bio_pageinc(bio);
-	buf->bv = bio_iovec(bio);
+	buf->bv = __bio_iovec(bio);
 	buf->bv_resid = buf->bv->bv_len;
 	WARN_ON(buf->bv_resid == 0);
 }
@@ -1146,7 +1139,7 @@ aoe_end_request(struct aoedev *d, struct request *rq, int fastfail)
 	do {
 		bio = rq->bio;
 		bok = !fastfail && test_bit(BIO_UPTODATE, &bio->bi_flags);
-	} while (__blk_end_request(rq, bok ? 0 : -EIO, bio->bi_size));
+	} while (__blk_end_request(rq, bok ? 0 : -EIO, bio->bi_iter.bi_size));
 
 	/* cf. http://lkml.org/lkml/2006/10/31/28 */
 	if (!fastfail)

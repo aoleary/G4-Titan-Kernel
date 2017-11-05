@@ -77,22 +77,10 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	int entered_state;
 
 	struct cpuidle_state *target_state = &drv->states[index];
-	ktime_t time_start, time_end;
-	s64 diff;
-
-	time_start = ktime_get();
 
 	entered_state = target_state->enter(dev, drv, index);
 
-	time_end = ktime_get();
-
 	local_irq_enable();
-
-	diff = ktime_to_us(ktime_sub(time_end, time_start));
-	if (diff > INT_MAX)
-		diff = INT_MAX;
-
-	dev->last_residency = (int) diff;
 
 	if (entered_state >= 0) {
 		/* Update cpuidle counters */
@@ -139,6 +127,9 @@ int cpuidle_idle_call(void)
 
 	/* ask the governor for the next state */
 	next_state = cpuidle_curr_governor->select(drv, dev);
+	if (next_state < 0)
+		return -EBUSY;
+
 	if (need_resched()) {
 		dev->last_residency = 0;
 		/* give the governor an opportunity to reflect on the outcome */
@@ -541,13 +532,17 @@ static void smp_callback(void *v)
 static int cpuidle_latency_notify(struct notifier_block *b,
 		unsigned long l, void *v)
 {
-	const struct cpumask *cpus;
+	static unsigned long prev_latency = ULONG_MAX;
+	struct cpumask cpus;
 
-	cpus = v ?: cpu_online_mask;
+	if (l < prev_latency) {
+		cpumask_andnot(&cpus, cpu_online_mask, cpu_isolated_mask);
+		preempt_disable();
+		smp_call_function_many(&cpus, smp_callback, NULL, false);
+		preempt_enable();
+	}
 
-	preempt_disable();
-	smp_call_function_many(cpus, smp_callback, NULL, 1);
-	preempt_enable();
+	prev_latency = l;
 
 	return NOTIFY_OK;
 }

@@ -110,7 +110,7 @@ static int update_node(struct devfreq_node *node)
 	if (df->previous_freq <= df->min_freq)
 		goto out;
 
-	schedule_delayed_work(&node->dwork,
+	queue_delayed_work(system_power_efficient_wq, &node->dwork,
 			      msecs_to_jiffies(node->timeout));
 out:
 	mutex_unlock(&df->lock);
@@ -667,7 +667,6 @@ static int __init devfreq_cpufreq_init(void)
 				pr_err("Parsing %s failed!\n", of_child->name);
 			else
 				pr_debug("Parsed %s.\n", of_child->name);
-			of_node_put(of_child);
 		}
 		of_node_put(of_par);
 	} else {

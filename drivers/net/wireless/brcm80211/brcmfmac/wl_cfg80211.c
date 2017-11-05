@@ -4019,6 +4019,11 @@ brcmf_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 		cfg80211_mgmt_tx_status(wdev, *cookie, buf, len, true,
 					GFP_KERNEL);
 	} else if (ieee80211_is_action(mgmt->frame_control)) {
+		if (len > BRCMF_FIL_ACTION_FRAME_SIZE + DOT11_MGMT_HDR_LEN) {
+			brcmf_err("invalid action frame length\n");
+			err = -EINVAL;
+			goto exit;
+		}
 		af_params = kzalloc(sizeof(*af_params), GFP_KERNEL);
 		if (af_params == NULL) {
 			brcmf_err("unable to allocate frame\n");
@@ -4841,7 +4846,8 @@ static void init_vif_event(struct brcmf_cfg80211_vif_event *event)
 }
 
 struct brcmf_cfg80211_info *brcmf_cfg80211_attach(struct brcmf_pub *drvr,
-						  struct device *busdev)
+						  struct device *busdev,
+						  bool p2pdev_forced)
 {
 	struct net_device *ndev = drvr->iflist[0]->ndev;
 	struct brcmf_cfg80211_info *cfg;
@@ -4885,7 +4891,7 @@ struct brcmf_cfg80211_info *brcmf_cfg80211_attach(struct brcmf_pub *drvr,
 	}
 	ifp->vif = vif;
 
-	err = brcmf_p2p_attach(cfg);
+	err = brcmf_p2p_attach(cfg, p2pdev_forced);
 	if (err) {
 		brcmf_err("P2P initilisation failed (%d)\n", err);
 		goto cfg80211_p2p_attach_out;

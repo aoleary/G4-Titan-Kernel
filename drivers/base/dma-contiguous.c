@@ -589,7 +589,7 @@ static void clear_cma_bitmap(struct cma *cma, unsigned long pfn, int count)
  * global one. Requires architecture specific get_dev_cma_area() helper
  * function.
  */
-unsigned long dma_alloc_from_contiguous(struct device *dev, int count,
+unsigned long dma_alloc_from_contiguous(struct device *dev, size_t count,
 				       unsigned int align)
 {
 	unsigned long mask, pfn = 0, pageno, start = 0;
@@ -604,7 +604,7 @@ unsigned long dma_alloc_from_contiguous(struct device *dev, int count,
 	if (align > CONFIG_CMA_ALIGNMENT)
 		align = CONFIG_CMA_ALIGNMENT;
 
-	pr_debug("%s(cma %p, count %d, align %d)\n", __func__, (void *)cma,
+	pr_debug("%s(cma %p, count %zu, align %d)\n", __func__, (void *)cma,
 		 count, align);
 
 	if (!count)
@@ -618,18 +618,20 @@ unsigned long dma_alloc_from_contiguous(struct device *dev, int count,
 		pageno = bitmap_find_next_zero_area(cma->bitmap, cma->count,
 						    start, count, mask);
 		if (pageno >= cma->count) {
-			if (retry_after_sleep == 0) {
+			if (retry_after_sleep < 2) {
 				pfn = 0;
 				start = 0;
 				pr_debug("%s: Memory range busy,"
 					"retry after sleep\n", __func__);
 				/*
-				* Page momentarily pinned by some other process
-				* and so cannot be migrated. Wait for 100ms and
-				* then retry to see if it has been freed.
+				* Page may be momentarily pinned by some other
+				* process which has been scheduled out, eg.
+				* in exit path or during unmap call,and so
+				* cannot be  freed there. Sleep for 100ms and
+				* retry twice to see if it has been freed later.
 				*/
 				msleep(100);
-				retry_after_sleep = 1;
+				retry_after_sleep++;
 				mutex_unlock(&cma->lock);
 				continue;
 			} else {

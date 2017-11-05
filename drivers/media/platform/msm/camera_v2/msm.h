@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, 2017 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,9 +38,12 @@
 #define BIT_SET( x, idx )    ( x |= 1<<(idx&7))
 #define BIT_ISSET( x, idx )  ( x & (1<<(idx&7)))
 #define BIT_CLR( x, idx )    ( x &= ~(1<<(idx&7)))
-/* LGE_CHANGE_E, camera stability task, added  msm-config debugfs*/
-
-#define MSM_POST_EVT_TIMEOUT 5000
+/* LGE_CHANGE_E, camera stability task, added  msm-config debugfs
+ * Setting MAX timeout to 10seconds considering
+ * backend will operate @ .6fps in certain usecases
+ * like Long exposure usecase and isp needs max of 2 frames
+ * to stop the hardware which will be around 3 seconds */
+#define MSM_POST_EVT_TIMEOUT 10000
 #define MSM_POST_EVT_NOTIMEOUT 0xFFFFFFFF
 #define MSM_CAMERA_STREAM_CNT_BITS  32
 
@@ -110,6 +113,8 @@ struct msm_session {
 	 * session struct msm_stream */
 	struct msm_queue_head stream_q;
 	struct mutex lock;
+	struct mutex lock_q;
+	rwlock_t stream_rwlock;
 };
 
 int msm_post_event(struct v4l2_event *event, int timeout);
@@ -121,11 +126,13 @@ int msm_create_stream(unsigned int session_id,
 void msm_delete_stream(unsigned int session_id, unsigned int stream_id);
 int  msm_create_command_ack_q(unsigned int session_id, unsigned int stream_id);
 void msm_delete_command_ack_q(unsigned int session_id, unsigned int stream_id);
-struct msm_stream *msm_get_stream(unsigned int session_id,
+struct msm_session *msm_get_session(unsigned int session_id);
+struct msm_stream *msm_get_stream(struct msm_session *session,
 	unsigned int stream_id);
 struct vb2_queue *msm_get_stream_vb2q(unsigned int session_id,
 	unsigned int stream_id);
 struct msm_stream *msm_get_stream_from_vb2q(struct vb2_queue *q);
+struct msm_session *msm_get_session_from_vb2q(struct vb2_queue *q);
 struct msm_session *msm_session_find(unsigned int session_id);
 #if 0//defined(CONFIG_MSM_OTP)
 struct v4l2_subdev *msm_subdev_find(const char *name);

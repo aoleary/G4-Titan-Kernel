@@ -62,6 +62,10 @@ enum qseecom_qceos_cmd_id {
 	QSEOS_TEE_INVOKE_MODFD_COMMAND = QSEOS_TEE_INVOKE_COMMAND,
 	QSEOS_TEE_CLOSE_SESSION,
 	QSEOS_TEE_REQUEST_CANCELLATION,
+	QSEOS_CLIENT_SEND_DATA_COMMAND_WHITELIST = 0x1C,
+	QSEOS_TEE_OPEN_SESSION_WHITELIST = 0x1D,
+	QSEOS_TEE_INVOKE_COMMAND_WHITELIST = 0x1E,
+	QSEOS_LISTENER_DATA_RSP_COMMAND_WHITELIST = 0x1F,
 	QSEOS_FSM_LTE_INIT_DB = 0x100,
 	QSEOS_FSM_LTE_STORE_KENB = 0x101,
 	QSEOS_FSM_LTE_GEN_KEYS = 0x102,
@@ -74,10 +78,6 @@ enum qseecom_qceos_cmd_id {
 	QSEOS_FSM_IKE_CMD_SIGN = 0x200,
 	QSEOS_FSM_IKE_CMD_PROV_KEY = 0x201,
 	QSEOS_FSM_IKE_CMD_ENCRYPT_PRIVATE_KEY = 0x202,
-	QSEOS_CLIENT_SEND_DATA_COMMAND_WHITELIST = 0x1C,
-	QSEOS_TEE_OPEN_SESSION_WHITELIST = 0x1D,
-	QSEOS_TEE_INVOKE_COMMAND_WHITELIST = 0x1E,
-	QSEOS_LISTENER_DATA_RSP_COMMAND_WHITELIST = 0x1F,
 	QSEOS_FSM_OEM_FUSE_WRITE_ROW = 0x301,
 	QSEOS_FSM_OEM_FUSE_READ_ROW = 0x302,
 	QSEOS_CMD_MAX     = 0xEFFFFFFF
@@ -154,17 +154,6 @@ __packed struct qseecom_client_send_data_ireq {
 	uint32_t sglistinfo_len;
 };
 
-__packed struct qseecom_client_send_data_64bit_ireq {
-	uint32_t qsee_cmd_id;
-	uint32_t app_id;
-	uint64_t req_ptr;
-	uint32_t req_len;
-	uint64_t rsp_ptr;
-	uint32_t rsp_len;
-	uint64_t sglistinfo_ptr;
-	uint32_t sglistinfo_len;
-};
-
 __packed struct qseecom_reg_log_buf_ireq {
 	uint32_t qsee_cmd_id;
 	uint32_t phy_addr;
@@ -177,14 +166,6 @@ __packed struct qseecom_client_listener_data_irsp {
 	uint32_t listener_id;
 	uint32_t status;
 	uint32_t sglistinfo_ptr;
-	uint32_t sglistinfo_len;
-};
-
-__packed struct qseecom_client_listener_data_64bit_irsp {
-	uint32_t qsee_cmd_id;
-	uint32_t listener_id;
-	uint32_t status;
-	uint64_t sglistinfo_ptr;
 	uint32_t sglistinfo_len;
 };
 
@@ -262,17 +243,6 @@ __packed struct qseecom_qteec_ireq {
 	uint32_t    resp_ptr;
 	uint32_t    resp_len;
 	uint32_t    sglistinfo_ptr;
-	uint32_t    sglistinfo_len;
-};
-
-__packed struct qseecom_qteec_64bit_ireq {
-	uint32_t    qsee_cmd_id;
-	uint32_t    app_id;
-	uint64_t    req_ptr;
-	uint32_t    req_len;
-	uint64_t    resp_ptr;
-	uint32_t    resp_len;
-	uint64_t    sglistinfo_ptr;
 	uint32_t    sglistinfo_len;
 };
 
@@ -639,3 +609,4 @@ __packed struct qseecom_client_send_fsm_key_req {
 	TZ_SYSCALL_PARAM_TYPE_BUF_RW, TZ_SYSCALL_PARAM_TYPE_VAL)
 
 #endif /* __QSEECOMI_H_ */
+

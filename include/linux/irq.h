@@ -29,7 +29,7 @@ struct seq_file;
 struct module;
 struct irq_desc;
 struct irq_data;
-typedef	void (*irq_flow_handler_t)(unsigned int irq,
+typedef	bool (*irq_flow_handler_t)(unsigned int irq,
 					    struct irq_desc *desc);
 typedef	void (*irq_preflow_handler_t)(struct irq_data *data);
 
@@ -296,6 +296,10 @@ static inline irq_hw_number_t irqd_to_hwirq(struct irq_data *d)
  * @irq_resume:		function called from core code on resume once per chip
  * @irq_pm_shutdown:	function called from core code on shutdown once per chip
  * @irq_print_chip:	optional to print special chip info in show_interrupts
+ * @irq_request_resources:	optional to request resources before calling
+ *				any other callback related to this irq
+ * @irq_release_resources:	optional to release resources acquired with
+ *				irq_request_resources
  * @flags:		chip specific flags
  */
 struct irq_chip {
@@ -328,6 +332,8 @@ struct irq_chip {
 	void		(*irq_pm_shutdown)(struct irq_data *data);
 
 	void		(*irq_print_chip)(struct irq_data *data, struct seq_file *p);
+	int		(*irq_request_resources)(struct irq_data *data);
+	void		(*irq_release_resources)(struct irq_data *data);
 
 	unsigned long	flags;
 };
@@ -379,7 +385,6 @@ extern void irq_cpu_online(void);
 extern void irq_cpu_offline(void);
 extern int irq_set_affinity_locked(struct irq_data *data,
 				   const struct cpumask *cpumask, bool force);
-extern void irq_affinity_notify(struct work_struct *work);
 
 #if defined(CONFIG_SMP) && defined(CONFIG_GENERIC_PENDING_IRQ)
 void irq_move_irq(struct irq_data *data);
@@ -404,15 +409,15 @@ static inline int irq_set_parent(int irq, int parent_irq)
  * Built-in IRQ handlers for various IRQ types,
  * callable via desc->handle_irq()
  */
-extern void handle_level_irq(unsigned int irq, struct irq_desc *desc);
-extern void handle_fasteoi_irq(unsigned int irq, struct irq_desc *desc);
-extern void handle_edge_irq(unsigned int irq, struct irq_desc *desc);
-extern void handle_edge_eoi_irq(unsigned int irq, struct irq_desc *desc);
-extern void handle_simple_irq(unsigned int irq, struct irq_desc *desc);
-extern void handle_percpu_irq(unsigned int irq, struct irq_desc *desc);
-extern void handle_percpu_devid_irq(unsigned int irq, struct irq_desc *desc);
-extern void handle_bad_irq(unsigned int irq, struct irq_desc *desc);
-extern void handle_nested_irq(unsigned int irq);
+extern bool handle_level_irq(unsigned int irq, struct irq_desc *desc);
+extern bool handle_fasteoi_irq(unsigned int irq, struct irq_desc *desc);
+extern bool handle_edge_irq(unsigned int irq, struct irq_desc *desc);
+extern bool handle_edge_eoi_irq(unsigned int irq, struct irq_desc *desc);
+extern bool handle_simple_irq(unsigned int irq, struct irq_desc *desc);
+extern bool handle_percpu_irq(unsigned int irq, struct irq_desc *desc);
+extern bool handle_percpu_devid_irq(unsigned int irq, struct irq_desc *desc);
+extern bool handle_bad_irq(unsigned int irq, struct irq_desc *desc);
+extern bool handle_nested_irq(unsigned int irq);
 
 /* Handling of unhandled and spurious interrupts: */
 extern void note_interrupt(unsigned int irq, struct irq_desc *desc,

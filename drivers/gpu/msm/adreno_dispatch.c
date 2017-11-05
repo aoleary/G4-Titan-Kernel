@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2015,2017 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -305,10 +305,15 @@ static inline void _pop_cmdbatch(struct adreno_context *drawctxt)
 		ADRENO_CONTEXT_CMDQUEUE_SIZE);
 	drawctxt->queued--;
 }
-
-static struct kgsl_cmdbatch *_get_cmdbatch(struct adreno_context *drawctxt)
+/**
+ * Removes all expired marker and sync cmdbatches from
+ * the context queue when marker command and dependent
+ * timestamp are retired. This function is recursive.
+ * returns cmdbatch if context has command, NULL otherwise.
+ */
+static struct kgsl_cmdbatch *_expire_markers(struct adreno_context *drawctxt)
 {
-	struct kgsl_cmdbatch *cmdbatch = NULL;
+	struct kgsl_cmdbatch *cmdbatch;
 	bool pending = false;
 
 	if (drawctxt->cmdqueue_head == drawctxt->cmdqueue_tail)
@@ -316,28 +321,66 @@ static struct kgsl_cmdbatch *_get_cmdbatch(struct adreno_context *drawctxt)
 
 	cmdbatch = drawctxt->cmdqueue[drawctxt->cmdqueue_head];
 
+	if (cmdbatch == NULL)
+		return NULL;
+
 	/* Check to see if this is a marker we can skip over */
-	if (cmdbatch->flags & KGSL_CMDBATCH_MARKER) {
-		if (_marker_expired(cmdbatch)) {
-			_pop_cmdbatch(drawctxt);
-			_retire_marker(cmdbatch);
-
-			/* Get the next thing in the queue */
-			return _get_cmdbatch(drawctxt);
-		}
-
-		/*
-		 * If the marker isn't expired but the SKIP bit is set
-		 * then there are real commands following this one in
-		 * the queue.  This means that we need to dispatch the
-		 * command so that we can keep the timestamp accounting
-		 * correct.  If skip isn't set then we block this queue
-		 * until the dependent timestamp expires
-		 */
-
-		if (!test_bit(CMDBATCH_FLAG_SKIP, &cmdbatch->priv))
-			pending = true;
+	if ((cmdbatch->flags & KGSL_CMDBATCH_MARKER) &&
+			_marker_expired(cmdbatch)) {
+		_pop_cmdbatch(drawctxt);
+		_retire_marker(cmdbatch);
+		return _expire_markers(drawctxt);
 	}
+
+	if (cmdbatch->flags & KGSL_CMDBATCH_SYNC) {
+		/*
+		 * We may have cmdbatch timer running, which also uses same
+		 * lock, take a lock with software interrupt disabled (bh) to
+		 * avoid spin lock recursion.
+		 */
+		spin_lock_bh(&cmdbatch->lock);
+		if (!list_empty(&cmdbatch->synclist))
+			pending = true;
+		spin_unlock_bh(&cmdbatch->lock);
+
+		if (!pending) {
+			_pop_cmdbatch(drawctxt);
+			kgsl_cmdbatch_destroy(cmdbatch);
+			return _expire_markers(drawctxt);
+		}
+	}
+
+	return cmdbatch;
+}
+
+static void expire_markers(struct adreno_context *drawctxt)
+{
+	spin_lock(&drawctxt->lock);
+	_expire_markers(drawctxt);
+	spin_unlock(&drawctxt->lock);
+}
+
+static struct kgsl_cmdbatch *_get_cmdbatch(struct adreno_context *drawctxt)
+{
+	struct kgsl_cmdbatch *cmdbatch;
+	bool pending = false;
+
+	cmdbatch = _expire_markers(drawctxt);
+
+	if (cmdbatch == NULL)
+		return NULL;
+
+	/*
+	 * If the marker isn't expired but the SKIP bit is set
+	 * then there are real commands following this one in
+	 * the queue.  This means that we need to dispatch the
+	 * command so that we can keep the timestamp accounting
+	 * correct.  If skip isn't set then we block this queue
+	 * until the dependent timestamp expires
+	 */
+	if ((cmdbatch->flags & KGSL_CMDBATCH_MARKER) &&
+			(!test_bit(CMDBATCH_FLAG_SKIP, &cmdbatch->priv)))
+		pending = true;
 
 	/*
 	 * We may have cmdbatch timer running, which also uses same lock,
@@ -359,7 +402,7 @@ static struct kgsl_cmdbatch *_get_cmdbatch(struct adreno_context *drawctxt)
 		 * it hasn't already been started
 		 */
 		if (!cmdbatch->timeout_jiffies) {
-			cmdbatch->timeout_jiffies = jiffies + 5 * HZ;
+			cmdbatch->timeout_jiffies = jiffies + msecs_to_jiffies(5000);
 			mod_timer(&cmdbatch->timer, cmdbatch->timeout_jiffies);
 		}
 
@@ -621,8 +664,10 @@ static int dispatcher_context_sendcmds(struct adreno_device *adreno_dev,
 	int inflight = _cmdqueue_inflight(dispatch_q);
 	unsigned int timestamp;
 
-	if (dispatch_q->inflight >= inflight)
+	if (dispatch_q->inflight >= inflight) {
+		expire_markers(drawctxt);
 		return -EBUSY;
+	}
 
 	/*
 	 * Each context can send a specific number of command batches per cycle
@@ -1024,6 +1069,13 @@ int adreno_dispatcher_queue_cmd(struct adreno_device *adreno_dev,
 
 	if (drawctxt->base.flags & KGSL_CONTEXT_NO_FAULT_TOLERANCE)
 		set_bit(KGSL_FT_DISABLE, &cmdbatch->fault_policy);
+	/*
+	 *  Set the fault tolerance policy to FT_REPLAY - As context wants
+	 *  to invalidate it after a replay attempt fails. This doesn't
+	 *  require to execute the default FT policy.
+	 */
+	else if (drawctxt->base.flags & KGSL_CONTEXT_INVALIDATE_ON_FAULT)
+		set_bit(KGSL_FT_REPLAY, &cmdbatch->fault_policy);
 	else
 		cmdbatch->fault_policy = adreno_dev->ft_policy;
 
@@ -1056,6 +1108,8 @@ int adreno_dispatcher_queue_cmd(struct adreno_device *adreno_dev,
 	_track_context(dispatch_q, drawctxt->base.id);
 
 	spin_unlock(&drawctxt->lock);
+
+	kgsl_pwrctrl_update_l2pc(&adreno_dev->dev);
 
 	/* Add the context to the dispatcher pending list */
 	dispatcher_queue_context(adreno_dev, drawctxt);
@@ -1264,7 +1318,7 @@ static inline const char *_kgsl_context_comm(struct kgsl_context *context)
 #define pr_fault(_d, _c, fmt, args...) \
 		dev_err((_d)->dev, "%s[%d]: " fmt, \
 		_kgsl_context_comm((_c)->context), \
-		(_c)->context->proc_priv->pid, ##args)
+		pid_nr((_c)->context->proc_priv->pid), ##args)
 
 
 static void adreno_fault_header(struct kgsl_device *device,
@@ -1707,11 +1761,12 @@ static int dispatcher_do_fault(struct kgsl_device *device)
 	adreno_clear_gpu_halt(adreno_dev);
 	ret = adreno_reset(device);
 	mutex_unlock(&device->mutex);
-	/* if any other fault got in until reset then ignore */
-	atomic_set(&dispatcher->fault, 0);
 
 	/* If adreno_reset() fails then what hope do we have for the future? */
 	BUG_ON(ret);
+
+	/* if any other fault got in until reset then ignore */
+	atomic_set(&dispatcher->fault, 0);
 
 	/* recover all the dispatch_q's starting with the one that hung */
 	if (dispatch_q)
@@ -1904,7 +1959,7 @@ static int adreno_dispatch_process_cmdqueue(struct adreno_device *adreno_dev,
  *
  * Process expired commands and send new ones.
  */
-static void adreno_dispatcher_work(struct work_struct *work)
+static void adreno_dispatcher_work(struct kthread_work *work)
 {
 	struct adreno_dispatcher *dispatcher =
 		container_of(work, struct adreno_dispatcher, work);
@@ -1920,16 +1975,11 @@ static void adreno_dispatcher_work(struct work_struct *work)
 		&(adreno_dev->cur_rb->dispatch_q),
 		adreno_dev->long_ib_detect);
 
+	kgsl_process_event_groups(device);
+
 	/* Check if gpu fault occurred */
 	if (dispatcher_do_fault(device))
 		goto done;
-
-	/*
-	 * If inflight went to 0, queue back up the event processor to catch
-	 * stragglers
-	 */
-	if (dispatcher->inflight == 0 && count)
-		queue_work(device->work_queue, &device->event_work);
 
 	/* Try to dispatch new commands */
 	_adreno_dispatcher_issuecmds(adreno_dev);
@@ -1981,7 +2031,7 @@ void adreno_dispatcher_schedule(struct kgsl_device *device)
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct adreno_dispatcher *dispatcher = &adreno_dev->dispatcher;
 
-	queue_work(device->work_queue, &dispatcher->work);
+	queue_kthread_work(&kgsl_driver.worker, &dispatcher->work);
 }
 
 /**
@@ -2272,7 +2322,7 @@ int adreno_dispatcher_init(struct adreno_device *adreno_dev)
 	setup_timer(&dispatcher->fault_timer, adreno_dispatcher_fault_timer,
 		(unsigned long) adreno_dev);
 
-	INIT_WORK(&dispatcher->work, adreno_dispatcher_work);
+	init_kthread_work(&dispatcher->work, adreno_dispatcher_work);
 
 	init_completion(&dispatcher->idle_gate);
 	complete_all(&dispatcher->idle_gate);

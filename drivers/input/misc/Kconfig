@@ -864,4 +864,3 @@ config SENSORS_ISL29044A
 	 This option enables support for the INTERSIL ISL29044A P/L sensor.
 
 endif
-

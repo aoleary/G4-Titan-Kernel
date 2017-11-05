@@ -59,6 +59,8 @@ inline int ufshcd_tag_req_type(struct request *rq)
 		rq_type = TS_NOT_SUPPORTED;
 	else if (rq->cmd_flags & REQ_FLUSH)
 		rq_type = TS_FLUSH;
+	else if (rq->cmd_flags & REQ_DISCARD)
+		rq_type = TS_DISCARD;
 	else if (rq_data_dir(rq) == READ)
 		rq_type = (rq->cmd_flags & REQ_URGENT) ?
 			TS_URGENT_READ : TS_READ;
@@ -399,7 +401,7 @@ static void ufshcd_add_command_trace(struct ufs_hba *hba,
 			 * commands
 			 */
 			if (lrbp->cmd->request && lrbp->cmd->request->bio)
-				lba = lrbp->cmd->request->bio->bi_sector;
+				lba = lrbp->cmd->request->bio->bi_iter.bi_sector;
 			transfer_len = be32_to_cpu(
 				lrbp->ucd_req_ptr->sc.exp_data_transfer_len);
 		}

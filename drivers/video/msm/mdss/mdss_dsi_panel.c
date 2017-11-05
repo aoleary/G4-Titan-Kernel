@@ -22,8 +22,10 @@
 #include <linux/qpnp/pwm.h>
 #include <linux/err.h>
 #include <linux/string.h>
+#include <linux/display_state.h>
 
 #include "mdss_dsi.h"
+#include "mdss_livedisplay.h"
 
 #if IS_ENABLED(CONFIG_LGE_READER_MODE)
 #include "lge/panel/reader_mode.h"
@@ -48,6 +50,7 @@ extern int lge_lg4945_panel_mode_cmd_send(int switch_cmd, struct mdss_dsi_ctrl_p
 #if defined(CONFIG_LGE_PP_AD_SUPPORTED)
 extern void qpnp_wled_dimming(int dst_lvl);
 #endif
+#include "mdss_livedisplay.h"
 
 #define DT_CMD_HDR 6
 #define MIN_REFRESH_RATE 30
@@ -57,6 +60,12 @@ extern int mdss_dsi_cmdlist_rx(struct mdss_dsi_ctrl_pdata *ctrl,
 				struct dcs_cmd_req *req);
 
 DEFINE_LED_TRIGGER(bl_led_trigger);
+
+bool display_on = true;
+bool is_display_on()
+{
+	return display_on;
+}
 
 void mdss_dsi_panel_pwm_cfg(struct mdss_dsi_ctrl_pdata *ctrl)
 {
@@ -173,7 +182,7 @@ u32 mdss_dsi_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl, char cmd0,
 void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 			struct dsi_panel_cmds *pcmds, u32 flags)
 #else
-static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
+void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 			struct dsi_panel_cmds *pcmds, u32 flags)
 #endif
 {
@@ -713,6 +722,8 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 		return -EINVAL;
 	}
 
+	display_on = true;
+
 	pinfo = &pdata->panel_info;
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
@@ -760,6 +771,13 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	if (lge_mdss_dsi.post_mdss_dsi_panel_on)
 		lge_mdss_dsi.post_mdss_dsi_panel_on(pdata);
 #endif
+	mdss_livedisplay_update(ctrl, MODE_UPDATE_ALL);
+
+	if (pdata->event_handler)
+		pdata->event_handler(pdata, MDSS_EVENT_UPDATE_LIVEDISPLAY,
+				(void *)(unsigned long) MODE_UPDATE_ALL);
+
+
 end:
 	pinfo->blank_state = MDSS_PANEL_BLANK_UNBLANK;
 	pr_info("%s:-\n", __func__);
@@ -802,6 +820,8 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	if (lge_mdss_dsi.post_mdss_dsi_panel_off)
 		lge_mdss_dsi.post_mdss_dsi_panel_off(pdata);
 #endif
+
+	display_on = false;
 
 end:
 	pinfo->blank_state = MDSS_PANEL_BLANK_BLANK;
@@ -884,7 +904,7 @@ static void mdss_dsi_parse_trigger(struct device_node *np, char *trigger,
 int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		struct dsi_panel_cmds *pcmds, char *cmd_key, char *link_key)
 #else
-static int mdss_dsi_parse_dcs_cmds(struct device_node *np,
+int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		struct dsi_panel_cmds *pcmds, char *cmd_key, char *link_key)
 #endif
 {
@@ -1757,19 +1777,24 @@ static int mdss_dsi_panel_parse_display_timings(struct device_node *np,
 
 	timings_np = of_get_child_by_name(np, "qcom,mdss-dsi-display-timings");
 	if (!timings_np) {
-		struct dsi_panel_timing pt;
-		memset(&pt, 0, sizeof(struct dsi_panel_timing));
+		struct dsi_panel_timing *pt;
+
+		pt = kzalloc(sizeof(*pt), GFP_KERNEL);
+		if (!pt)
+			return -ENOMEM;
 
 		/*
 		 * display timings node is not available, fallback to reading
 		 * timings directly from root node instead
 		 */
 		pr_debug("reading display-timings from panel node\n");
-		rc = mdss_dsi_panel_timing_from_dt(np, &pt);
+		rc = mdss_dsi_panel_timing_from_dt(np, pt);
 		if (!rc) {
 			mdss_dsi_panel_config_res_properties(np,
-				panel_data->panel_info.sim_panel_mode, &pt);
-			rc = mdss_dsi_panel_timing_switch(ctrl, &pt.timing);
+				panel_data->panel_info.sim_panel_mode, pt);
+			rc = mdss_dsi_panel_timing_switch(ctrl, &pt->timing);
+		} else {
+			kfree(pt);
 		}
 		return rc;
 	}
@@ -2109,6 +2134,7 @@ static int mdss_panel_parse_dt(struct device_node *np,
 #if IS_ENABLED(CONFIG_LGE_READER_MODE)
 	lge_mdss_dsi_parse_reader_mode_cmds(np, ctrl_pdata);
 #endif
+	mdss_livedisplay_parse_dt(np, pinfo);
 
 	return 0;
 

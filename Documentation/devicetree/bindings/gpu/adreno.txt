@@ -23,6 +23,9 @@ Required properties:
 				KGSL_CLK_MEM_IFACE 0x00000010
 				KGSL_CLK_AXI    0x00000020
 				KGSL_CLK_RBBMTIMER 0x00000080
+				KGSL_CLK_GFX_GTCU 0x00000100
+				KGSL_CLK_GFX_GTBU 0x00000200
+				KGSL_CLK_AON	0x00000400
 
 - clocks:		List of phandle and clock specifier pairs, one pair
 			for each clock input to the device.
@@ -30,7 +33,7 @@ Required properties:
 			order as the clocks property.
 				Current values of clock-names are:
 				"src_clk", "core_clk", "iface_clk", "mem_clk", "mem_iface_clk",
-				"alt_mem_iface_clk", "rbbmtimer_clk"
+				"alt_mem_iface_clk", "rbbmtimer_clk", "gtcu_clk", "gtbu_clk", "aon_clk"
 				"core_clk" and "iface_clk" are required and others are optional
 
 Bus Scaling Data:
@@ -82,9 +85,11 @@ Optional Properties:
 - qcom,initial-powerlevel: This value indicates which qcom,gpu-pwrlevel should be used at start time
 			   and when coming back out of resume
 - qcom,bus-control:	   Boolean. Enables an independent bus vote from the gpu frequency
+- qcom,bus-width:	   Bus width in number of bytes. This enables dynamic AB bus voting based on
+			   bus width and actual bus transactions.
 - qcom,gpubw-dev:	   a phandle to a device representing bus bandwidth requirements
 			   (see devdw.txt)
-- qcom,idle-timeout:	   This property represents the time in microseconds for idle timeout.
+- qcom,idle-timeout:	   This property represents the time in milliseconds for idle timeout.
 - qcom,chipid:		   If it exists this property is used to replace
 			   the chip identification read from the GPU hardware.
 			   This is used to override faulty hardware readings.
@@ -100,6 +105,13 @@ Optional Properties:
 - qcom,pm-qos-wakeup-latency:
 				Similar to the above. Driver votes against deep low
 				power modes right before GPU wakes up from sleep.
+- qcom,popp-enable:
+				Boolean. Enables the POPP feature in the gpu kernel driver.
+
+- qcom,l2pc-cpu-mask: unsigned int
+				Disables L2PC on masked CPUs when any of Graphics
+				rendering thread is running on masked CPUs.
+				Bit 0 is for CPU-0, bit 1 is for CPU-1...
 
 The following properties are optional as collecting data via coresight might
 not be supported for every chipset. The documentation for coresight

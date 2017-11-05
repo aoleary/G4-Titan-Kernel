@@ -304,10 +304,6 @@ static void pet_watchdog(struct msm_watchdog_data *wdog_dd)
 	if (slack_ns < wdog_dd->min_slack_ns)
 		wdog_dd->min_slack_ns = slack_ns;
 	wdog_dd->last_pet = time_ns;
-
-#ifdef CONFIG_LGE_HANDLE_PANIC
-	pr_notice("%s\n", __func__);
-#endif
 }
 
 static void keep_alive_response(void *info)
@@ -516,7 +512,7 @@ static void configure_bark_dump(struct msm_watchdog_data *wdog_dd)
 			 * without saving registers.
 			 */
 		}
-	} else {
+	} else if (IS_ENABLED(CONFIG_MSM_MEMORY_DUMP_V2)) {
 		cpu_data = kzalloc(sizeof(struct msm_dump_data) *
 				   num_present_cpus(), GFP_KERNEL);
 		if (!cpu_data) {

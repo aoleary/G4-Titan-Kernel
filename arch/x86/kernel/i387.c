@@ -119,7 +119,7 @@ unsigned int xstate_size;
 EXPORT_SYMBOL_GPL(xstate_size);
 static struct i387_fxsave_struct fx_scratch __cpuinitdata;
 
-static void __cpuinit mxcsr_feature_mask_init(void)
+static void mxcsr_feature_mask_init(void)
 {
 	unsigned long mask = 0;
 
@@ -133,7 +133,7 @@ static void __cpuinit mxcsr_feature_mask_init(void)
 	mxcsr_feature_mask &= mask;
 }
 
-static void __cpuinit init_thread_xstate(void)
+static void init_thread_xstate(void)
 {
 	/*
 	 * Note that xstate_size might be overwriten later during
@@ -158,11 +158,13 @@ static void __cpuinit init_thread_xstate(void)
 }
 
 /*
- * Called at bootup to set up the initial FPU state that is later cloned
- * into all processes.
+ * Called on the boot CPU at bootup to set up the initial FPU state that
+ * is later cloned into all processes.
+ *
+ * Also called on secondary CPUs to set up the FPU state of their
+ * idle threads.
  */
-
-void __cpuinit fpu_init(void)
+void fpu__cpu_init(void)
 {
 	unsigned long cr0;
 	unsigned long cr4_mask = 0;

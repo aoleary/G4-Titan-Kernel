@@ -222,6 +222,9 @@ asmlinkage long sys_oabi_fcntl64(unsigned int fd, unsigned int cmd,
 	ret = sys_fcntl64(fd, cmd, local_arg);
 
 	switch (cmd) {
+	case F_OFD_GETLK:
+	case F_OFD_SETLK:
+	case F_OFD_SETLKW:
 	case F_GETLK64:
 		if (!ret) {
 			user.l_type	= kernel.l_type;
@@ -275,8 +278,12 @@ asmlinkage long sys_oabi_epoll_wait(int epfd,
 	mm_segment_t fs;
 	long ret, err, i;
 
-	if (maxevents <= 0 || maxevents > (INT_MAX/sizeof(struct epoll_event)))
+	if (maxevents <= 0 ||
+			maxevents > (INT_MAX/sizeof(*kbuf)) ||
+			maxevents > (INT_MAX/sizeof(*events)))
 		return -EINVAL;
+	if (!access_ok(VERIFY_WRITE, events, sizeof(*events) * maxevents))
+		return -EFAULT;
 	kbuf = kmalloc(sizeof(*kbuf) * maxevents, GFP_KERNEL);
 	if (!kbuf)
 		return -ENOMEM;
@@ -313,6 +320,8 @@ asmlinkage long sys_oabi_semtimedop(int semid,
 
 	if (nsops < 1 || nsops > SEMOPM)
 		return -EINVAL;
+	if (!access_ok(VERIFY_READ, tsops, sizeof(*tsops) * nsops))
+		return -EFAULT;
 	sops = kmalloc(sizeof(*sops) * nsops, GFP_KERNEL);
 	if (!sops)
 		return -ENOMEM;

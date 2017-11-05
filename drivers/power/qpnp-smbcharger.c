@@ -248,7 +248,6 @@ struct smbchg_chip {
 	int				recharge_irq;
 	int				fastchg_irq;
 	int				safety_timeout_irq;
-	int				power_ok_irq;
 	int				dcin_uv_irq;
 	int				usbin_uv_irq;
 	int				usbin_ov_irq;
@@ -1384,8 +1383,11 @@ enum battchg_enable_reason {
 
 static struct power_supply *get_parallel_psy(struct smbchg_chip *chip)
 {
-	if (!chip->parallel.avail)
-		return NULL;
+	{
+		if (!chip->parallel.avail)
+			return NULL;
+			return chip->parallel.psy;
+	}
 	if (chip->parallel.psy)
 		return chip->parallel.psy;
 	chip->parallel.psy = power_supply_get_by_name("usb-parallel");
@@ -1686,7 +1688,7 @@ static int smbchg_set_usb_current_max(struct smbchg_chip *chip,
 	switch (usb_supply_type) {
 	case POWER_SUPPLY_TYPE_USB:
 		if (current_ma < CURRENT_150_MA) {
-			/* force 100mA */
+			/* force 150mA */
 			rc = smbchg_sec_masked_write(chip,
 					chip->usb_chgpth_base + CHGPTH_CFG,
 					CFG_USB_2_3_SEL_BIT, CFG_USB_2);
@@ -1702,7 +1704,7 @@ static int smbchg_set_usb_current_max(struct smbchg_chip *chip,
 				pr_err("Couldn't set CMD_IL rc = %d\n", rc);
 				goto out;
 			}
-			chip->usb_max_current_ma = 100;
+			chip->usb_max_current_ma = 150;
 		}
 		/* specific current values */
 		if (current_ma == CURRENT_150_MA) {
@@ -2371,7 +2373,7 @@ static void smbchg_parallel_usb_enable(struct smbchg_chip *chip)
 			pr_smb(PR_LGE, "aicl is not complete. retry count is %d\n",
 							chip->aicl_complete_retry_cnt);
 			chip->aicl_complete_retry_cnt++;
-			schedule_delayed_work(
+			queue_delayed_work(system_power_efficient_wq,
 				&chip->parallel_en_work,
 				msecs_to_jiffies(RETRY_TIME_MS));
 
@@ -2440,6 +2442,10 @@ static void smbchg_parallel_usb_enable(struct smbchg_chip *chip)
 	if ( (ibat_table.pmi != chip->target_fastchg_current_ma) ||
 		(ibat_table.smb != chip->parallel.fastchg_current_max_ma) )
 	{
+#ifdef CONFIG_CHARGER_VOLTAGE
+		rc = power_supply_set_voltage_limit(chip->usb_psy,
+				(chip->vfloat_mv + 50) * 1000);
+#endif
 		chip->target_fastchg_current_ma = ibat_table.pmi;
 		smbchg_set_fastchg_current(chip, chip->target_fastchg_current_ma);
 		chip->parallel.fastchg_current_max_ma = ibat_table.smb;
@@ -2451,6 +2457,10 @@ static void smbchg_parallel_usb_enable(struct smbchg_chip *chip)
 		pr_smb(PR_LGE, "pmi/smb new fcc is as same as new fcc. skipping\n");
 	}
 #else
+#ifdef CONFIG_CHARGER_VOLTAGE
+	rc = power_supply_set_voltage_limit(chip->usb_psy,
+			(chip->vfloat_mv + 50) * 1000);
+#endif
 	chip->target_fastchg_current_ma = chip->cfg_fastchg_current_ma / 2;
 	smbchg_set_fastchg_current(chip, chip->target_fastchg_current_ma);
 	pval.intval = chip->target_fastchg_current_ma * 1000;
@@ -2535,7 +2545,7 @@ static void smbchg_parallel_usb_check_ok(struct smbchg_chip *chip)
 	mutex_lock(&chip->parallel.lock);
 	if (smbchg_is_parallel_usb_ok(chip)) {
 		smbchg_stay_awake(chip, PM_PARALLEL_CHECK);
-		schedule_delayed_work(
+		queue_delayed_work(system_power_efficient_wq,
 			&chip->parallel_en_work,
 			msecs_to_jiffies(PARALLEL_CHARGER_EN_DELAY_MS));
 	} else if (chip->parallel.current_max_ma != 0) {
@@ -3159,8 +3169,13 @@ static int smbchg_float_voltage_set(struct smbchg_chip *chip, int vfloat_mv)
 
 	if (rc)
 		dev_err(chip->dev, "Couldn't set float voltage rc = %d\n", rc);
-	else
+	else {
 		chip->vfloat_mv = vfloat_mv;
+#ifdef CONFIG_CHARGER_VOLTAGE
+		power_supply_set_voltage_limit(chip->usb_psy,
+				chip->vfloat_mv * 1000);
+#endif
+	}
 
 	return rc;
 }
@@ -3267,7 +3282,8 @@ static void smbchg_vfloat_adjust_check(struct smbchg_chip *chip)
 
 	smbchg_stay_awake(chip, PM_REASON_VFLOAT_ADJUST);
 	pr_smb(PR_STATUS, "Starting vfloat adjustments\n");
-	schedule_delayed_work(&chip->vfloat_adjust_work, 0);
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->vfloat_adjust_work, 0);
 }
 
 #define FV_STS_REG			0xC
@@ -4231,8 +4247,9 @@ stop:
 	return;
 
 reschedule:
-	schedule_delayed_work(&chip->vfloat_adjust_work,
-			msecs_to_jiffies(VFLOAT_RESAMPLE_DELAY_MS));
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->vfloat_adjust_work,
+		msecs_to_jiffies(VFLOAT_RESAMPLE_DELAY_MS));
 	return;
 }
 
@@ -4264,7 +4281,8 @@ static void smbchg_hvdcp_det_work(struct work_struct *work)
 		chip->usb_psy = power_supply_get_by_name("usb");
 		if (IS_ERR_OR_NULL(chip->usb_psy)) {
 			pr_smb(PR_LGE, "usb power supply is not registerd. retry later.\n");
-			schedule_delayed_work(&chip->hvdcp_det_work,
+			queue_delayed_work(system_power_efficient_wq,
+					&chip->hvdcp_det_work,
 					msecs_to_jiffies(HVDCP_RETRY_MS));
 			return;
 		}
@@ -4408,9 +4426,9 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 			pr_smb(PR_STATUS, "vddcx set level HVDCP_VDD_CX_MIN for USB removal failed\n");
 #endif
 		pr_smb(PR_MISC, "setting usb psy type = %d\n",
-				POWER_SUPPLY_TYPE_UNKNOWN);
+				POWER_SUPPLY_TYPE_USB);
 		power_supply_set_supply_type(chip->usb_psy,
-				POWER_SUPPLY_TYPE_UNKNOWN);
+				POWER_SUPPLY_TYPE_USB);
 		pr_smb(PR_MISC, "setting usb psy present = %d\n",
 				chip->usb_present);
 		power_supply_set_present(chip->usb_psy, chip->usb_present);
@@ -4458,7 +4476,8 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 		wake_unlock(&chip->hvdcp_lock);
 #endif
 #ifdef CONFIG_LGE_PM_BMD
-	schedule_delayed_work(&chip->update_bmd_work, 0);
+	queue_delayed_work(system_power_efficient_wq,
+	&chip->update_bmd_work, 0);
 #endif
 }
 
@@ -4482,7 +4501,7 @@ static bool is_src_detect_high(struct smbchg_chip *chip)
 #endif
 
 #define DEFAULT_WALL_CHG_MA	1800
-#define DEFAULT_SDP_MA		100
+#define DEFAULT_SDP_MA		150
 #define DEFAULT_CDP_MA		1500
 static void handle_usb_insertion(struct smbchg_chip *chip)
 {
@@ -4547,7 +4566,8 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 	}
 
 	if (usb_supply_type == POWER_SUPPLY_TYPE_USB_DCP) {
-		schedule_delayed_work(&chip->hvdcp_det_work,
+		queue_delayed_work(system_power_efficient_wq,
+					&chip->hvdcp_det_work,
 					msecs_to_jiffies(HVDCP_NOTIFY_MS));
 		pr_smb(PR_STATUS, "schedule delayed work for the HVDCP detetct\n");
 	}
@@ -4578,7 +4598,8 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 		chip->enable_aicl_wake = true;
 	}
 #ifdef CONFIG_LGE_PM_BMD
-	schedule_delayed_work(&chip->update_bmd_work, 0);
+	queue_delayed_work(system_power_efficient_wq,
+	&chip->update_bmd_work, 0);
 #endif
 }
 
@@ -4646,11 +4667,13 @@ void usb_remove_work_select(struct smbchg_chip *chip)
 		if ((prop.intval == POWER_SUPPLY_TYPE_USB_DCP) ||
 			(prop.intval == POWER_SUPPLY_TYPE_USB_HVDCP)) {
 			/* DCP or HVDCP removed */
-			schedule_delayed_work(&chip->usb_remove_work,
+			queue_delayed_work(system_power_efficient_wq,
+				&chip->usb_remove_work,
 				msecs_to_jiffies(LGE_TA_REMOVE_DELAY));
 		} else {
 			/* CDP or SDP removed */
-			schedule_delayed_work(&chip->usb_remove_work,
+			queue_delayed_work(system_power_efficient_wq,
+				&chip->usb_remove_work,
 				msecs_to_jiffies(LGE_CABLE_REMOVE_DELAY));
 		}
 	}
@@ -4803,14 +4826,7 @@ static void increment_aicl_count(struct smbchg_chip *chip)
 				now_seconds, chip->aicl_irq_count);
 #ifndef CONFIG_LGE_PM
 			pr_smb(PR_INTERRUPT, "Disable AICL rerun\n");
-			/*
-			 * Disable AICL rerun since many interrupts were
-			 * triggered in a short time
-			 */
 			chip->very_weak_charger = true;
-			rc = smbchg_hw_aicl_rerun_en(chip, false);
-			if (rc)
-				pr_err("could not enable aicl reruns: %d", rc);
 			bad_charger = true;
 #endif
 			chip->aicl_irq_count = 0;
@@ -4916,7 +4932,8 @@ static int smbchg_battery_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_ENABLE_EVP_CHG:
 		chip->is_evp_ta = val->intval;
 		pr_smb(PR_LGE, "is_evp_ta = %d\n", chip->is_evp_ta);
-		schedule_delayed_work(&chip->enable_evp_chg_work, 0);
+		queue_delayed_work(system_power_efficient_wq,
+		&chip->enable_evp_chg_work, 0);
 		break;
 #endif
 #ifdef CONFIG_LGE_PM_QC20_SCENARIO
@@ -5439,34 +5456,6 @@ static irqreturn_t safety_timeout_handler(int irq, void *_chip)
 }
 
 /**
- * power_ok_handler() - called when the switcher turns on or turns off
- * @chip: pointer to smbchg_chip
- * @rt_stat: the status bit indicating switcher turning on or off
- */
-static irqreturn_t power_ok_handler(int irq, void *_chip)
-{
-	struct smbchg_chip *chip = _chip;
-	u8 reg = 0;
-#ifdef CONFIG_LGE_PM_EXTERNAL_BATTERY_FOR_VZW
-	int rc = 0;
-#endif
-
-	smbchg_read(chip, &reg, chip->misc_base + RT_STS, 1);
-	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
-
-#ifdef CONFIG_LGE_PM_EXTERNAL_BATTERY_FOR_VZW
-	if (reg == 1 && chip->check_vzw_external_battery == true) {
-		rc = smbchg_hw_aicl_rerun_en(chip, true);
-		if (rc)
-			pr_err("could not enable aicl reruns: %d", rc);
-//		chip->check_vzw_external_battery = false;
-		pr_smb(PR_LGE, "[UV] return iusb_set\n");
-	}
-#endif
-	return IRQ_HANDLED;
-}
-
-/**
  * dcin_uv_handler() - called when the dc voltage crosses the uv threshold
  * @chip: pointer to smbchg_chip
  * @rt_stat: the status bit indicating whether dc voltage is uv
@@ -5584,8 +5573,6 @@ static irqreturn_t usbin_uv_handler(int irq, void *_chip)
 	static bool check_flag = true;
 #endif
 
-	pr_smb(PR_STATUS, "chip->usb_present = %d usb_present = %d\n",
-			chip->usb_present, usb_present);
 #ifdef CONFIG_LGE_PM_UV_WAKELOCK
 	if ( (chip->uevent_wake_lock.ws.name) != NULL )
 		wake_lock_timeout(&chip->uevent_wake_lock, HZ*3);
@@ -5905,7 +5892,8 @@ static irqreturn_t aicl_done_handler(int irq, void *_chip)
 #ifdef CONFIG_LGE_PM_AICL
 		if (aicl_rerun && (aicl_status == AICL_RERUN)) {
 			aicl_status = AICL_ENABLE;
-			schedule_delayed_work(&chip->aicl_work,
+			queue_delayed_work(system_power_efficient_wq,
+					&chip->aicl_work,
 					msecs_to_jiffies(AICL_RERUN_TIME));
 		}
 #endif
@@ -7149,8 +7137,6 @@ static int smbchg_request_irqs(struct smbchg_chip *chip)
 			break;
 		case SMBCHG_MISC_SUBTYPE:
 		case SMBCHG_LITE_MISC_SUBTYPE:
-			REQUEST_IRQ(chip, spmi_resource, chip->power_ok_irq,
-				"power-ok", power_ok_handler, flags, rc);
 			REQUEST_IRQ(chip, spmi_resource, chip->chg_hot_irq,
 				"temp-shutdown", chg_hot_handler, flags, rc);
 			REQUEST_IRQ(chip, spmi_resource,
@@ -7425,6 +7411,8 @@ static int smbchg_probe(struct spmi_device *spmi)
 						rc);
 			return rc;
 		}
+	} else {
+		vadc_dev = NULL;
 	}
 
 	chip = devm_kzalloc(&spmi->dev, sizeof(*chip), GFP_KERNEL);

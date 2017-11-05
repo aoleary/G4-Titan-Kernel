@@ -89,6 +89,7 @@
 #include <linux/slab.h>
 #include <linux/xattr.h>
 #include <linux/qmp_sphinx_instrumentation.h>
+#include <linux/nospec.h>
 
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
@@ -2503,6 +2504,7 @@ SYSCALL_DEFINE2(socketcall, int, call, unsigned long __user *, args)
 
 	if (call < 1 || call > SYS_SENDMMSG)
 		return -EINVAL;
+	call = array_index_nospec(call, SYS_SENDMMSG + 1);
 
 	len = nargs[call];
 	if (len > sizeof(a))
@@ -3207,8 +3209,9 @@ static int routing_ioctl(struct net *net, struct socket *sock,
 
 	if (sock && sock->sk && sock->sk->sk_family == AF_INET6) { /* ipv6 */
 		struct in6_rtmsg32 __user *ur6 = argp;
-		ret = copy_from_user(&r6.rtmsg_dst, &(ur6->rtmsg_dst),
-			3 * sizeof(struct in6_addr));
+		ret = copy_from_user((u8 *)&r6 + offsetof(typeof(r6), rtmsg_dst),
+				     (u8 *)ur6 + offsetof(typeof(*ur6), rtmsg_dst),
+				     3 * sizeof(r6.rtmsg_dst));
 		ret |= __get_user(r6.rtmsg_type, &(ur6->rtmsg_type));
 		ret |= __get_user(r6.rtmsg_dst_len, &(ur6->rtmsg_dst_len));
 		ret |= __get_user(r6.rtmsg_src_len, &(ur6->rtmsg_src_len));
@@ -3220,8 +3223,9 @@ static int routing_ioctl(struct net *net, struct socket *sock,
 		r = (void *) &r6;
 	} else { /* ipv4 */
 		struct rtentry32 __user *ur4 = argp;
-		ret = copy_from_user(&r4.rt_dst, &(ur4->rt_dst),
-					3 * sizeof(struct sockaddr));
+		ret = copy_from_user((u8 *)&r4 + offsetof(typeof(r4), rt_dst),
+				     (u8 *)ur4 + offsetof(typeof(*ur4), rt_dst),
+				     3 * sizeof(r4.rt_dst));
 		ret |= __get_user(r4.rt_flags, &(ur4->rt_flags));
 		ret |= __get_user(r4.rt_metric, &(ur4->rt_metric));
 		ret |= __get_user(r4.rt_mtu, &(ur4->rt_mtu));

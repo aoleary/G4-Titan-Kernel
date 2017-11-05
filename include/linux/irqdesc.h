@@ -31,8 +31,7 @@ struct irq_desc;
  * @threads_handled_last: comparator field for deferred spurious detection of theraded handlers
  * @lock:		locking for SMP
  * @affinity_hint:	hint to user space for preferred irq affinity
- * @affinity_notify:	list of notification clients for affinity changes
- * @affinity_work:	Work queue for handling affinity change notifications
+ * @affinity_notify:	context for notification of affinity changes
  * @pending_mask:	pending rebalanced interrupts
  * @threads_oneshot:	bitfield to handle shared oneshot threads
  * @threads_active:	number of irqaction threads currently running
@@ -61,8 +60,7 @@ struct irq_desc {
 	struct cpumask		*percpu_enabled;
 #ifdef CONFIG_SMP
 	const struct cpumask	*affinity_hint;
-	struct list_head	affinity_notify;
-	struct work_struct	affinity_work;
+	struct irq_affinity_notify *affinity_notify;
 #ifdef CONFIG_GENERIC_PENDING_IRQ
 	cpumask_var_t		pending_mask;
 #endif
@@ -113,9 +111,10 @@ static inline struct msi_desc *irq_desc_get_msi_desc(struct irq_desc *desc)
  * irqchip-style controller then we call the ->handle_irq() handler,
  * and it calls __do_IRQ() if it's attached to an irqtype-style controller.
  */
-static inline void generic_handle_irq_desc(unsigned int irq, struct irq_desc *desc)
+
+static inline bool generic_handle_irq_desc(unsigned int irq, struct irq_desc *desc)
 {
-	desc->handle_irq(irq, desc);
+	return desc->handle_irq(irq, desc);
 }
 
 int generic_handle_irq(unsigned int irq);

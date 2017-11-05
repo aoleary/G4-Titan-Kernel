@@ -1385,6 +1385,27 @@ static void msm_ipc_router_free_resume_tx_port(
 }
 
 /**
+ * msm_ipc_router_free_conn_info() - Free the local ports
+ * @rport_ptr: Pointer to the remote port.
+ *
+ * This function deletes all the local ports associated with a remote port
+ * and frees the memory allocated to each local port.
+ *
+ * Must be called with rport_ptr->rport_lock_lhb2 locked.
+ */
+static void msm_ipc_router_free_conn_info(
+	struct msm_ipc_router_remote_port *rport_ptr)
+{
+	struct ipc_router_conn_info *conn_info, *tmp_conn_info;
+
+	list_for_each_entry_safe(conn_info, tmp_conn_info,
+			&rport_ptr->conn_info_list, list) {
+		list_del(&conn_info->list);
+		kfree(conn_info);
+	}
+}
+
+/**
  * msm_ipc_router_lookup_resume_tx_port() - Lookup resume_tx port list
  * @rport_ptr: Remote port whose resume_tx port list needs to be looked.
  * @port_id: Port ID which needs to be looked from the list.
@@ -1490,6 +1511,7 @@ static void ipc_router_release_rport(struct kref *ref)
 
 	mutex_lock(&rport_ptr->rport_lock_lhb2);
 	msm_ipc_router_free_resume_tx_port(rport_ptr);
+	msm_ipc_router_free_conn_info(rport_ptr);
 	mutex_unlock(&rport_ptr->rport_lock_lhb2);
 	kfree(rport_ptr);
 }
@@ -2034,7 +2056,6 @@ static void cleanup_rmt_server(struct msm_ipc_router_xprt_info *xprt_info,
 {
 	union rr_control_msg ctl;
 
-	ipc_router_reset_conn(rport_ptr);
 	memset(&ctl, 0, sizeof(ctl));
 	ctl.cmd = IPC_ROUTER_CTRL_CMD_REMOVE_SERVER;
 	ctl.srv.service = server->name.service;
@@ -2065,6 +2086,7 @@ static void cleanup_rmt_ports(struct msm_ipc_router_xprt_info *xprt_info,
 			server = rport_ptr->server;
 			rport_ptr->server = NULL;
 			mutex_unlock(&rport_ptr->rport_lock_lhb2);
+			ipc_router_reset_conn(rport_ptr);
 			if (server) {
 				cleanup_rmt_server(xprt_info, rport_ptr,
 						   server);
@@ -2219,13 +2241,13 @@ static void ipc_router_reset_conn(struct msm_ipc_router_remote_port *rport_ptr)
 	list_for_each_entry_safe(conn_info, tmp_conn_info,
 				&rport_ptr->conn_info_list, list) {
 		port_ptr = ipc_router_get_port_ref(conn_info->port_id);
-		if (!port_ptr)
-			continue;
-		mutex_lock(&port_ptr->port_lock_lhc3);
-		port_ptr->conn_status = CONNECTION_RESET;
-		mutex_unlock(&port_ptr->port_lock_lhc3);
-		wake_up(&port_ptr->port_rx_wait_q);
-		kref_put(&port_ptr->ref, ipc_router_release_port);
+		if (port_ptr) {
+			mutex_lock(&port_ptr->port_lock_lhc3);
+			port_ptr->conn_status = CONNECTION_RESET;
+			mutex_unlock(&port_ptr->port_lock_lhc3);
+			wake_up(&port_ptr->port_rx_wait_q);
+			kref_put(&port_ptr->ref, ipc_router_release_port);
+		}
 
 		list_del(&conn_info->list);
 		kfree(conn_info);
@@ -2476,6 +2498,7 @@ static int process_rmv_client_msg(struct msm_ipc_router_xprt_info *xprt_info,
 		server = rport_ptr->server;
 		rport_ptr->server = NULL;
 		mutex_unlock(&rport_ptr->rport_lock_lhb2);
+		ipc_router_reset_conn(rport_ptr);
 		down_write(&server_list_lock_lha2);
 		if (server)
 			cleanup_rmt_server(NULL, rport_ptr, server);
@@ -2747,6 +2770,10 @@ static int loopback_data(struct msm_ipc_port *src,
 	}
 
 	temp_skb = skb_peek_tail(pkt->pkt_fragment_q);
+	if (!temp_skb) {
+		IPC_RTR_ERR("%s: Empty skb\n", __func__);
+		return -EINVAL;
+	}
 	align_size = ALIGN_SIZE(pkt->length);
 	skb_put(temp_skb, align_size);
 	pkt->length += align_size;
@@ -2901,6 +2928,11 @@ static int msm_ipc_router_write_pkt(struct msm_ipc_port *src,
 	}
 
 	temp_skb = skb_peek_tail(pkt->pkt_fragment_q);
+	if (!temp_skb) {
+		IPC_RTR_ERR("%s: Abort invalid pkt\n", __func__);
+		ret = -EINVAL;
+		goto out_write_pkt;
+	}
 	align_size = ALIGN_SIZE(pkt->length);
 	skb_put(temp_skb, align_size);
 	pkt->length += align_size;
@@ -3219,7 +3251,8 @@ int msm_ipc_router_recv_from(struct msm_ipc_port *port_ptr,
 	align_size = ALIGN_SIZE(data_len);
 	if (align_size) {
 		temp_skb = skb_peek_tail((*pkt)->pkt_fragment_q);
-		skb_trim(temp_skb, (temp_skb->len - align_size));
+		if (temp_skb)
+			skb_trim(temp_skb, (temp_skb->len - align_size));
 	}
 	return data_len;
 }

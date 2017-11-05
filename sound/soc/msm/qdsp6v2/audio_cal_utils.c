@@ -61,6 +61,7 @@ size_t get_cal_info_size(int32_t cal_type)
 		size = sizeof(struct audio_cal_info_audproc);
 		break;
 	case ADM_AUDVOL_CAL_TYPE:
+	case ADM_RTAC_AUDVOL_CAL_TYPE:
 		size = sizeof(struct audio_cal_info_audvol);
 		break;
 	case ASM_TOPOLOGY_CAL_TYPE:
@@ -173,6 +174,7 @@ size_t get_user_cal_type_size(int32_t cal_type)
 		size = sizeof(struct audio_cal_type_audproc);
 		break;
 	case ADM_AUDVOL_CAL_TYPE:
+	case ADM_RTAC_AUDVOL_CAL_TYPE:
 		size = sizeof(struct audio_cal_type_audvol);
 		break;
 	case ASM_TOPOLOGY_CAL_TYPE:
@@ -527,14 +529,13 @@ static struct cal_block_data *create_cal_block(struct cal_type_data *cal_type,
 		goto done;
 	}
 
-	cal_block = kmalloc(sizeof(*cal_type),
+	cal_block = kzalloc(sizeof(*cal_block),
 		GFP_KERNEL);
 	if (cal_block == NULL) {
 		pr_err("%s: could not allocate cal_block!\n", __func__);
 		goto done;
 	}
 
-	memset(cal_block, 0, sizeof(*cal_block));
 	INIT_LIST_HEAD(&cal_block->list);
 
 	cal_block->map_data.ion_map_handle = basic_cal->cal_data.mem_handle;
@@ -558,7 +559,7 @@ static struct cal_block_data *create_cal_block(struct cal_type_data *cal_type,
 				client_info_size);
 	}
 
-	cal_block->cal_info = kmalloc(
+	cal_block->cal_info = kzalloc(
 		get_cal_info_size(cal_type->info.reg.cal_type),
 		GFP_KERNEL);
 	if (cal_block->cal_info == NULL) {
@@ -577,9 +578,11 @@ static struct cal_block_data *create_cal_block(struct cal_type_data *cal_type,
 done:
 	return cal_block;
 err:
-    kfree(cal_block->cal_info);
-    kfree(cal_block->client_info);
-    kfree(cal_block);
+	kfree(cal_block->cal_info);
+	cal_block->cal_info = NULL;
+	kfree(cal_block->client_info);
+	cal_block->client_info = NULL;
+	kfree(cal_block);
 	cal_block = NULL;
 	return cal_block;
 }

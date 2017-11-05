@@ -92,6 +92,7 @@ extern void lm3697_set_ramp_time(u32 interval);
 #if defined(CONFIG_LGE_PP_AD_SUPPORTED)
 extern void mdss_dsi_panel_dimming_ctrl(int bl_level);
 #endif
+#include "mdss_livedisplay.h"
 
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
 #define MDSS_FB_NUM 3
@@ -117,6 +118,13 @@ int sp_link_backlight_status;
 int sp_link_backlight_brightness;
 int sp_link_backlight_is_ready;
 #endif
+
+#define MDSS_BRIGHT_TO_BL_DIM(out, v) do {\
+			out = (12*v*v+1393*v+3060)/4465;\
+			} while (0)
+bool backlight_dimmer = false;
+module_param(backlight_dimmer, bool, 0644);
+
 static struct fb_info *fbi_list[MAX_FBI_LIST];
 static int fbi_list_index;
 
@@ -465,10 +473,14 @@ static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
 #endif
 	pr_debug("value(%d) -> bl_lvl(%d)\n", value, bl_lvl);
 #else
-	/* This maps android backlight level 0 to 255 into
-	   driver backlight level 0 to bl_max with rounding */
-	MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
-				mfd->panel_info->brightness_max);
+	if (backlight_dimmer) {
+		MDSS_BRIGHT_TO_BL_DIM(bl_lvl, value);
+	} else {
+		/* This maps android backlight level 0 to 255 into
+		   driver backlight level 0 to bl_max with rounding */
+		MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
+					mfd->panel_info->brightness_max);
+	}
 #endif
 	if (!bl_lvl && value)
 		bl_lvl = 1;
@@ -624,7 +636,7 @@ static void mdss_fb_ad_set_backlight(struct msm_fb_data_type *mfd, int brightnes
 {
     int main_bl, sub_bl;
 
-    if(brightness <= 0)  // display off case
+    if(brightness <= -1)  // display off case
         return;
 
     if (mfd->panel_info->lge_pan_info.blmap)
@@ -1573,7 +1585,8 @@ static int mdss_fb_create_sysfs(struct msm_fb_data_type *mfd)
 	rc = sysfs_create_group(&mfd->fbi->dev->kobj, &mdss_fb_attr_group);
 	if (rc)
 		pr_err("sysfs group creation failed, rc=%d\n", rc);
-	return rc;
+
+	return mdss_livedisplay_create_sysfs(mfd);
 }
 
 static void mdss_fb_remove_sysfs(struct msm_fb_data_type *mfd)
@@ -2842,7 +2855,7 @@ int mdss_fb_alloc_fb_ion_memory(struct msm_fb_data_type *mfd, size_t fb_size)
 			ion_unmap_iommu(mfd->fb_ion_client, mfd->fb_ion_handle,
 					mfd->mdp.fb_mem_get_iommu_domain(), 0);
 		}
-		goto fb_mmap_failed;
+		goto err_put;
 	}
 
 	pr_debug("alloc 0x%zuB vaddr = %pK (%pa iova) for fb%d\n", fb_size,
@@ -2854,8 +2867,12 @@ int mdss_fb_alloc_fb_ion_memory(struct msm_fb_data_type *mfd, size_t fb_size)
 
 	return rc;
 
+err_put:
+	dma_buf_put(mfd->fbmem_buf);
 fb_mmap_failed:
 	ion_free(mfd->fb_ion_client, mfd->fb_ion_handle);
+	mfd->fb_ion_handle = NULL;
+	mfd->fbmem_buf = NULL;
 	return rc;
 }
 

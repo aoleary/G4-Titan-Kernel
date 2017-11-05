@@ -361,9 +361,13 @@ static int ext4_valid_extent(struct inode *inode, struct ext4_extent *ext)
 	ext4_fsblk_t block = ext4_ext_pblock(ext);
 	int len = ext4_ext_get_actual_len(ext);
 	ext4_lblk_t lblock = le32_to_cpu(ext->ee_block);
-	ext4_lblk_t last = lblock + len - 1;
 
-	if (len == 0 || lblock > last)
+	/*
+	 * We allow neither:
+	 *  - zero length
+	 *  - overflow/wrap-around
+	 */
+	if (lblock + len <= lblock)
 		return 0;
 	return ext4_data_block_valid(EXT4_SB(inode->i_sb), block, len);
 }
@@ -452,6 +456,10 @@ static int __ext4_ext_check(const char *function, unsigned int line,
 	}
 	if (!ext4_valid_extent_entries(inode, eh, depth)) {
 		error_msg = "invalid extent entries";
+		goto corrupted;
+	}
+	if (unlikely(depth > 32)) {
+		error_msg = "too large eh_depth";
 		goto corrupted;
 	}
 	/* Verify checksum on non-root extent tree nodes */
@@ -742,6 +750,12 @@ ext4_ext_find_extent(struct inode *inode, ext4_lblk_t block,
 
 	eh = ext_inode_hdr(inode);
 	depth = ext_depth(inode);
+	if (depth < 0 || depth > EXT4_MAX_EXTENT_DEPTH) {
+		EXT4_ERROR_INODE(inode, "inode has invalid extent depth: %d",
+				 depth);
+		ret = -EIO;
+		goto err;
+	}
 
 	/* account possible depth increase */
 	if (!path) {
@@ -2700,6 +2714,7 @@ int ext4_ext_remove_space(struct inode *inode, ext4_lblk_t start,
 			  ext4_lblk_t end)
 {
 	struct super_block *sb = inode->i_sb;
+	struct ext4_ext_path path_onstack[SZ_4K / sizeof(struct ext4_ext_path)];
 	int depth = ext_depth(inode);
 	struct ext4_ext_path *path = NULL;
 	ext4_fsblk_t partial_cluster = 0;
@@ -2788,11 +2803,15 @@ again:
 			path[k].p_block =
 				le16_to_cpu(path[k].p_hdr->eh_entries)+1;
 	} else {
-		path = kzalloc(sizeof(struct ext4_ext_path) * (depth + 1),
-			       GFP_NOFS);
-		if (path == NULL) {
-			ext4_journal_stop(handle);
-			return -ENOMEM;
+		if (depth + 1 <= ARRAY_SIZE(path_onstack)) {
+			path = path_onstack;
+			memset(path, 0, sizeof(*path) * (depth + 1));
+		} else {
+			path = kzalloc(sizeof(*path) * (depth + 1), GFP_NOFS);
+			if (path == NULL) {
+				ext4_journal_stop(handle);
+				return -ENOMEM;
+			}
 		}
 		path[0].p_depth = depth;
 		path[0].p_hdr = ext_inode_hdr(inode);
@@ -2916,7 +2935,8 @@ again:
 	}
 out:
 	ext4_ext_drop_refs(path);
-	kfree(path);
+	if (path != path_onstack)
+		kfree(path);
 	if (err == -EAGAIN) {
 		path = NULL;
 		goto again;

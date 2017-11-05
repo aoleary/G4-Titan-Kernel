@@ -148,7 +148,7 @@ static int msm_csid_config(struct csid_device *csid_dev,
 	void __iomem *csidbase;
 	csidbase = csid_dev->base;
 	if (!csidbase || !csid_params) {
-		pr_err("%s:%d csidbase %p, csid params %p\n", __func__,
+		pr_err("%s:%d csidbase %pK, csid params %pK\n", __func__,
 			__LINE__, csidbase, csid_params);
 		return -EINVAL;
 	}
@@ -168,7 +168,7 @@ static int msm_csid_config(struct csid_device *csid_dev,
 		return -EINVAL;
 	}
 
-	clk_rate = (csid_params->csi_clk > 0) ?
+	clk_rate = ((int)csid_params->csi_clk > 0) ?
 				(csid_params->csi_clk) : csid_dev->csid_max_clk;
 	round_rate = clk_round_rate(csid_clk_ptr[csid_dev->csid_clk_index],
 					clk_rate);
@@ -276,7 +276,7 @@ static int msm_csid_init(struct csid_device *csid_dev, uint32_t *csid_version)
 		return rc;
 	}
 
-	pr_info("%s: CSID_VERSION = 0x%x\n", __func__,
+	pr_debug("%s: CSID_VERSION = 0x%x\n", __func__,
 		csid_dev->ctrl_reg->csid_reg.csid_version);
 	/* power up */
 	if (csid_dev->ctrl_reg->csid_reg.csid_version < CSID_VERSION_V22) {
@@ -479,7 +479,7 @@ static int32_t msm_csid_cmd(struct csid_device *csid_dev, void __user *arg)
 	struct csid_cfg_data *cdata = (struct csid_cfg_data *)arg;
 
 	if (!csid_dev || !cdata) {
-		pr_err("%s:%d csid_dev %p, cdata %p\n", __func__, __LINE__,
+		pr_err("%s:%d csid_dev %pK, cdata %pK\n", __func__, __LINE__,
 			csid_dev, cdata);
 		return -EINVAL;
 	}
@@ -600,7 +600,7 @@ static int32_t msm_csid_cmd32(struct csid_device *csid_dev, void __user *arg)
 	cdata = &local_arg;
 
 	if (!csid_dev || !cdata) {
-		pr_err("%s:%d csid_dev %p, cdata %p\n", __func__, __LINE__,
+		pr_err("%s:%d csid_dev %pK, cdata %pK\n", __func__, __LINE__,
 			csid_dev, cdata);
 		return -EINVAL;
 	}

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,11 +38,6 @@
 #define QMI_SEND_STATS_REQ_TIMEOUT_MS 5000
 #define QMI_SEND_REQ_TIMEOUT_MS 60000
 
-/* 2015-03-10, LGE, secheol.pyo@lge.com,
- * fixed modem crash which occured due to ipa_qmi_ctx kzalloc failure under oom.
- */
-#define LGE_FIXED_MODEM_CRASH_BY_OOM
-
 static struct qmi_handle *ipa_svc_handle;
 static void ipa_a5_svc_recv_msg(struct work_struct *work);
 static DECLARE_DELAYED_WORK(work_recv_msg, ipa_a5_svc_recv_msg);
@@ -57,9 +52,7 @@ struct ipa_qmi_context *ipa_qmi_ctx;
 static bool workqueues_stopped;
 static bool first_time_handshake;
 
-#ifdef LGE_FIXED_MODEM_CRASH_BY_OOM
-struct ipa_qmi_context s_ipa_qmi_ctx;
-#endif
+struct mutex ipa_qmi_lock;
 
 /* QMI A5 service */
 
@@ -167,7 +160,7 @@ static int handle_install_filter_rule_req(void *req_h, void *req)
 			resp.filter_handle_list_len = MAX_NUM_Q6_RULE;
 			IPAWANERR("installed (%d) max Q6-UL rules ",
 			MAX_NUM_Q6_RULE);
-			IPAWANERR("but modem gives total (%d)\n",
+			IPAWANERR("but modem gives total (%u)\n",
 			rule_req->filter_spec_list_len);
 		} else {
 			resp.filter_handle_list_len =
@@ -504,12 +497,17 @@ int qmi_filter_request_send(struct ipa_install_fltr_rule_req_msg_v01 *req)
 		req->filter_spec_list_len);
 	}
 
-	/* cache the qmi_filter_request */
-	memcpy(&(ipa_qmi_ctx->ipa_install_fltr_rule_req_msg_cache[
-		ipa_qmi_ctx->num_ipa_install_fltr_rule_req_msg]),
-			req, sizeof(struct ipa_install_fltr_rule_req_msg_v01));
-	ipa_qmi_ctx->num_ipa_install_fltr_rule_req_msg++;
-	ipa_qmi_ctx->num_ipa_install_fltr_rule_req_msg %= 10;
+	mutex_lock(&ipa_qmi_lock);
+	if (ipa_qmi_ctx != NULL) {
+		/* cache the qmi_filter_request */
+		memcpy(&(ipa_qmi_ctx->ipa_install_fltr_rule_req_msg_cache[
+			ipa_qmi_ctx->num_ipa_install_fltr_rule_req_msg]),
+			req,
+			sizeof(struct ipa_install_fltr_rule_req_msg_v01));
+			ipa_qmi_ctx->num_ipa_install_fltr_rule_req_msg++;
+			ipa_qmi_ctx->num_ipa_install_fltr_rule_req_msg %= 10;
+	}
+	mutex_unlock(&ipa_qmi_lock);
 
 	req_desc.max_msg_len = QMI_IPA_INSTALL_FILTER_RULE_REQ_MAX_MSG_LEN_V01;
 	req_desc.msg_id = QMI_IPA_INSTALL_FILTER_RULE_REQ_V01;
@@ -649,12 +647,17 @@ int qmi_filter_notify_send(struct ipa_fltr_installed_notif_req_msg_v01 *req)
 		return -EINVAL;
 	}
 
-	/* cache the qmi_filter_request */
-	memcpy(&(ipa_qmi_ctx->ipa_fltr_installed_notif_req_msg_cache[
-		ipa_qmi_ctx->num_ipa_fltr_installed_notif_req_msg]),
-		req, sizeof(struct ipa_fltr_installed_notif_req_msg_v01));
-	ipa_qmi_ctx->num_ipa_fltr_installed_notif_req_msg++;
-	ipa_qmi_ctx->num_ipa_fltr_installed_notif_req_msg %= 10;
+	mutex_lock(&ipa_qmi_lock);
+	if (ipa_qmi_ctx != NULL) {
+		/* cache the qmi_filter_request */
+		memcpy(&(ipa_qmi_ctx->ipa_fltr_installed_notif_req_msg_cache[
+			ipa_qmi_ctx->num_ipa_fltr_installed_notif_req_msg]),
+			req,
+			sizeof(struct ipa_fltr_installed_notif_req_msg_v01));
+			ipa_qmi_ctx->num_ipa_fltr_installed_notif_req_msg++;
+			ipa_qmi_ctx->num_ipa_fltr_installed_notif_req_msg %= 10;
+	}
+	mutex_unlock(&ipa_qmi_lock);
 
 	req_desc.max_msg_len =
 	QMI_IPA_FILTER_INSTALLED_NOTIF_REQ_MAX_MSG_LEN_V01;
@@ -785,9 +788,19 @@ static void ipa_q6_clnt_svc_arrive(struct work_struct *work)
 	}
 	qmi_modem_init_fin = true;
 
-	/* In cold-bootup, first_time_handshake = false */
-	ipa_q6_handshake_complete(first_time_handshake);
-	first_time_handshake = true;
+	/*
+	 * In case the uC is required to be loaded by the Modem,
+	 * the proxy vote will be removed only when uC loading is
+	 * complete and indication is received by the AP. After SSR,
+	 * uC is already loaded. Therefore, proxy vote can be removed
+	 * once Modem init is complete.
+	 */
+	if (!ipa_uc_loaded_check())
+		ipa_proxy_clk_unvote();
+
+        /* In cold-bootup, first_time_handshake = false */
+        ipa_q6_handshake_complete(first_time_handshake);
+        first_time_handshake = true;
 
 	IPAWANDBG("complete, qmi_modem_init_fin : %d\n",
 		qmi_modem_init_fin);
@@ -854,12 +867,7 @@ static void ipa_qmi_service_init_worker(struct work_struct *work)
 	IPAWANDBG("IPA A7 QMI init OK :>>>>\n");
 
 	/* start the QMI msg cache */
-#ifdef LGE_FIXED_MODEM_CRASH_BY_OOM
-	memset(&s_ipa_qmi_ctx, 0, sizeof(struct ipa_qmi_context));
-	ipa_qmi_ctx = &s_ipa_qmi_ctx;
-#else /* Qualcomm Original */
 	ipa_qmi_ctx = vzalloc(sizeof(*ipa_qmi_ctx));
-#endif
 	if (!ipa_qmi_ctx) {
 		IPAWANERR(":vzalloc err.\n");
 		return;
@@ -868,12 +876,8 @@ static void ipa_qmi_service_init_worker(struct work_struct *work)
 	ipa_svc_workqueue = create_singlethread_workqueue("ipa_A7_svc");
 	if (!ipa_svc_workqueue) {
 		IPAWANERR("Creating ipa_A7_svc workqueue failed\n");
-#ifdef LGE_FIXED_MODEM_CRASH_BY_OOM
-               ipa_qmi_ctx = NULL;
-#else /* Qualcomm Original */
 		vfree(ipa_qmi_ctx);
 		ipa_qmi_ctx = NULL;
-#endif
 		return;
 	}
 
@@ -937,12 +941,8 @@ destroy_qmi_handle:
 destroy_ipa_A7_svc_wq:
 	destroy_workqueue(ipa_svc_workqueue);
 	ipa_svc_workqueue = NULL;
-#ifdef LGE_FIXED_MODEM_CRASH_BY_OOM
-       ipa_qmi_ctx = NULL;
-#else /* Qualcomm Original */
 	vfree(ipa_qmi_ctx);
 	ipa_qmi_ctx = NULL;
-#endif
 	return;
 }
 
@@ -1011,16 +1011,12 @@ void ipa_qmi_service_exit(void)
 	}
 
 	/* clean the QMI msg cache */
-#ifdef LGE_FIXED_MODEM_CRASH_BY_OOM
-	if (ipa_qmi_ctx != NULL) {
-		ipa_qmi_ctx = NULL;
-	}
-#else /* Qualcomm Original */
+	mutex_lock(&ipa_qmi_lock);
 	if (ipa_qmi_ctx != NULL) {
 		vfree(ipa_qmi_ctx);
 		ipa_qmi_ctx = NULL;
 	}
-#endif
+	mutex_unlock(&ipa_qmi_lock);
 
 	ipa_svc_handle = 0;
 	qmi_modem_init_fin = false;
@@ -1161,4 +1157,14 @@ int ipa_qmi_stop_data_qouta(void)
 	return ipa_check_qmi_response(rc,
 		QMI_IPA_STOP_DATA_USAGE_QUOTA_REQ_V01, resp.resp.result,
 		resp.resp.error, "ipa_stop_data_usage_quota_req_msg_v01");
+}
+
+void ipa_qmi_init(void)
+{
+	mutex_init(&ipa_qmi_lock);
+}
+
+void ipa_qmi_cleanup(void)
+{
+	mutex_destroy(&ipa_qmi_lock);
 }

@@ -2,6 +2,7 @@
 # Makefile for misc devices that really don't fit anywhere else.
 #
 
+obj-$(CONFIG_VIB_TRIGGERS)      += vib-triggers.o
 obj-$(CONFIG_IBM_ASM)		+= ibmasm/
 obj-$(CONFIG_AD525X_DPOT)	+= ad525x_dpot.o
 obj-$(CONFIG_AD525X_DPOT_I2C)	+= ad525x_dpot-i2c.o
@@ -56,7 +57,7 @@ obj-$(CONFIG_INTEL_MEI)		+= mei/
 obj-$(CONFIG_VMWARE_VMCI)	+= vmw_vmci/
 obj-$(CONFIG_LATTICE_ECP3_CONFIG)	+= lattice-ecp3-config.o
 obj-$(CONFIG_SRAM)		+= sram.o
-obj-$(CONFIG_UID_CPUTIME) += uid_cputime.o
+obj-$(CONFIG_UID_SYS_STATS) += uid_sys_stats.o
 obj-$(CONFIG_TSIF) += msm_tsif.o
 obj-$(CONFIG_HAPTIC_ISA1200)		+= isa1200.o
 obj-$(CONFIG_QSEECOM) += qseecom.o
@@ -72,3 +73,4 @@ obj-$(CONFIG_LGE_IRRC)		+= lge_uei_irrc.o
 obj-$(CONFIG_LGE_EVENT_LOCK) += lge_factory_misc.o
 obj-$(CONFIG_LGE_APPSPORT)		+= appsport.o
 obj-$(CONFIG_ITSON_API)				+= itson_module1/
+obj-$(CONFIG_BATTERY_SAVER)	+= battery_saver.o

@@ -150,6 +150,8 @@ int irq_do_set_affinity(struct irq_data *data, const struct cpumask *mask,
 	struct irq_chip *chip = irq_data_get_irq_chip(data);
 	int ret;
 
+	/* IRQs only run on the first CPU in the affinity mask; reflect that */
+	mask = cpumask_of(cpumask_first(mask));
 	ret = chip->irq_set_affinity(data, mask, force);
 	switch (ret) {
 	case IRQ_SET_MASK_OK:
@@ -179,9 +181,10 @@ int irq_set_affinity_locked(struct irq_data *data, const struct cpumask *mask,
 		irq_copy_pending(desc, mask);
 	}
 
-	if (!list_empty(&desc->affinity_notify))
-		schedule_work(&desc->affinity_work);
-
+	if (desc->affinity_notify) {
+		kref_get(&desc->affinity_notify->kref);
+		schedule_work(&desc->affinity_notify->work);
+	}
 	irqd_set(data, IRQD_AFFINITY_SET);
 
 	return ret;
@@ -216,16 +219,16 @@ int irq_set_affinity_hint(unsigned int irq, const struct cpumask *m)
 }
 EXPORT_SYMBOL_GPL(irq_set_affinity_hint);
 
-void irq_affinity_notify(struct work_struct *work)
+static void irq_affinity_notify(struct work_struct *work)
 {
-	struct irq_desc *desc =
-			container_of(work, struct irq_desc, affinity_work);
+	struct irq_affinity_notify *notify =
+		container_of(work, struct irq_affinity_notify, work);
+	struct irq_desc *desc = irq_to_desc(notify->irq);
 	cpumask_var_t cpumask;
 	unsigned long flags;
-	struct irq_affinity_notify *notify;
 
 	if (!desc || !alloc_cpumask_var(&cpumask, GFP_KERNEL))
-		return;
+		goto out;
 
 	raw_spin_lock_irqsave(&desc->lock, flags);
 	if (irq_move_pending(&desc->irq_data))
@@ -234,20 +237,11 @@ void irq_affinity_notify(struct work_struct *work)
 		cpumask_copy(cpumask, desc->irq_data.affinity);
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
 
-	list_for_each_entry(notify, &desc->affinity_notify, list) {
-		/**
-		 * Check and get the kref only if the kref has not been
-		 * released by now. Its possible that the reference count
-		 * is already 0, we dont want to notify those if they are
-		 * already released.
-		 */
-		if (!kref_get_unless_zero(&notify->kref))
-			continue;
-		notify->notify(notify, cpumask);
-		kref_put(&notify->kref, notify->release);
-	}
+	notify->notify(notify, cpumask);
 
 	free_cpumask_var(cpumask);
+out:
+	kref_put(&notify->kref, notify->release);
 }
 
 /**
@@ -265,49 +259,37 @@ int
 irq_set_affinity_notifier(unsigned int irq, struct irq_affinity_notify *notify)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
+	struct irq_affinity_notify *old_notify;
 	unsigned long flags;
+
+	/* The release function is promised process context */
+	might_sleep();
 
 	if (!desc)
 		return -EINVAL;
 
-	if (!notify) {
-		WARN("%s called with NULL notifier - use irq_release_affinity_notifier function instead.\n",
-				__func__);
-		return -EINVAL;
+	/* Complete initialisation of *notify */
+	if (notify) {
+		notify->irq = irq;
+		kref_init(&notify->kref);
+		INIT_WORK(&notify->work, irq_affinity_notify);
 	}
 
-	notify->irq = irq;
-	kref_init(&notify->kref);
-	INIT_LIST_HEAD(&notify->list);
 	raw_spin_lock_irqsave(&desc->lock, flags);
-	list_add(&notify->list, &desc->affinity_notify);
+	old_notify = desc->affinity_notify;
+	desc->affinity_notify = notify;
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
+
+	if (old_notify) {
+		if (notify)
+			WARN(1, "overwriting previous IRQ affinity notifier\n");
+		cancel_work_sync(&old_notify->work);
+		kref_put(&old_notify->kref, old_notify->release);
+	}
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(irq_set_affinity_notifier);
-
-/**
- *	irq_release_affinity_notifier - Remove us from notifications
- *	@notify: Context for notification
- */
-int irq_release_affinity_notifier(struct irq_affinity_notify *notify)
-{
-	struct irq_desc *desc;
-	unsigned long flags;
-
-	if (!notify)
-		return -EINVAL;
-
-	desc = irq_to_desc(notify->irq);
-	raw_spin_lock_irqsave(&desc->lock, flags);
-	list_del(&notify->list);
-	raw_spin_unlock_irqrestore(&desc->lock, flags);
-	kref_put(&notify->kref, notify->release);
-
-	return 0;
-}
-EXPORT_SYMBOL(irq_release_affinity_notifier);
 
 #ifndef CONFIG_AUTO_IRQ_AFFINITY
 /*
@@ -885,9 +867,6 @@ static void irq_thread_dtor(struct callback_head *unused)
 static int irq_thread(void *data)
 {
 	struct callback_head on_exit_work;
-	static const struct sched_param param = {
-		.sched_priority = MAX_USER_RT_PRIO/2,
-	};
 	struct irqaction *action = data;
 	struct irq_desc *desc = irq_to_desc(action->irq);
 	irqreturn_t (*handler_fn)(struct irq_desc *desc,
@@ -898,8 +877,6 @@ static int irq_thread(void *data)
 		handler_fn = irq_forced_thread_fn;
 	else
 		handler_fn = irq_thread_fn;
-
-	sched_setscheduler(current, SCHED_FIFO, &param);
 
 	init_task_work(&on_exit_work, irq_thread_dtor);
 	task_work_add(current, &on_exit_work, false);
@@ -945,6 +922,23 @@ static void irq_setup_forced_threading(struct irqaction *new)
 		new->thread_fn = new->handler;
 		new->handler = irq_default_primary_handler;
 	}
+}
+
+static int irq_request_resources(struct irq_desc *desc)
+{
+	struct irq_data *d = &desc->irq_data;
+	struct irq_chip *c = d->chip;
+
+	return c->irq_request_resources ? c->irq_request_resources(d) : 0;
+}
+
+static void irq_release_resources(struct irq_desc *desc)
+{
+	struct irq_data *d = &desc->irq_data;
+	struct irq_chip *c = d->chip;
+
+	if (c->irq_release_resources)
+		c->irq_release_resources(d);
 }
 
 /*
@@ -995,6 +989,9 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 	 */
 	if (new->thread_fn && !nested) {
 		struct task_struct *t;
+		static const struct sched_param param = {
+			.sched_priority = MAX_USER_RT_PRIO/2,
+		};
 
 		t = kthread_create(irq_thread, new, "irq/%d-%s", irq,
 				   new->name);
@@ -1002,6 +999,9 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 			ret = PTR_ERR(t);
 			goto out_mput;
 		}
+
+		sched_setscheduler_nocheck(t, SCHED_FIFO, &param);
+
 		/*
 		 * We keep the reference to the task struct even if
 		 * the thread dies to avoid that the interrupt code
@@ -1136,6 +1136,13 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 	}
 
 	if (!shared) {
+		ret = irq_request_resources(desc);
+		if (ret) {
+			pr_err("Failed to request resources for %s (irq %d) on irqchip %s\n",
+			       new->name, irq, desc->irq_data.chip->name);
+			goto out_mask;
+		}
+
 		init_waitqueue_head(&desc->wait_for_threads);
 
 		/* Setup the type (level, edge polarity) if configured: */
@@ -1143,8 +1150,10 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 			ret = __irq_set_trigger(desc, irq,
 					new->flags & IRQF_TRIGGER_MASK);
 
-			if (ret)
+			if (ret) {
+				irq_release_resources(desc);
 				goto out_mask;
+			}
 		}
 
 		desc->istate &= ~(IRQS_AUTODETECT | IRQS_SPURIOUS_DISABLED | \
@@ -1280,6 +1289,7 @@ static struct irqaction *__free_irq(unsigned int irq, void *dev_id)
 	if (!desc)
 		return NULL;
 
+	chip_bus_lock(desc);
 	raw_spin_lock_irqsave(&desc->lock, flags);
 
 	/*
@@ -1293,7 +1303,7 @@ static struct irqaction *__free_irq(unsigned int irq, void *dev_id)
 		if (!action) {
 			WARN(1, "Trying to free already-free IRQ %d\n", irq);
 			raw_spin_unlock_irqrestore(&desc->lock, flags);
-
+			chip_bus_sync_unlock(desc);
 			return NULL;
 		}
 
@@ -1308,12 +1318,7 @@ static struct irqaction *__free_irq(unsigned int irq, void *dev_id)
 	/* If this was the last handler, shut down the IRQ line: */
 	if (!desc->action) {
 		irq_shutdown(desc);
-
-		/* Explicitly mask the interrupt */
-		if (desc->irq_data.chip->irq_mask)
-			desc->irq_data.chip->irq_mask(&desc->irq_data);
-		else if (desc->irq_data.chip->irq_mask_ack)
-			desc->irq_data.chip->irq_mask_ack(&desc->irq_data);
+		irq_release_resources(desc);
 	}
 
 #ifdef CONFIG_SMP
@@ -1323,6 +1328,7 @@ static struct irqaction *__free_irq(unsigned int irq, void *dev_id)
 #endif
 
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
+	chip_bus_sync_unlock(desc);
 
 	unregister_handler_proc(irq, action);
 
@@ -1387,22 +1393,16 @@ EXPORT_SYMBOL_GPL(remove_irq);
 void free_irq(unsigned int irq, void *dev_id)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
-#ifdef CONFIG_SMP
-	struct irq_affinity_notify *notify;
-#endif
+
 	if (!desc || WARN_ON(irq_settings_is_per_cpu_devid(desc)))
 		return;
 
 #ifdef CONFIG_SMP
-	WARN_ON(!list_empty(&desc->affinity_notify));
-
-	list_for_each_entry(notify, &desc->affinity_notify, list)
-		kref_put(&notify->kref, notify->release);
+	if (WARN_ON(desc->affinity_notify))
+		desc->affinity_notify = NULL;
 #endif
 
-	chip_bus_lock(desc);
 	kfree(__free_irq(irq, dev_id));
-	chip_bus_sync_unlock(desc);
 }
 EXPORT_SYMBOL(free_irq);
 

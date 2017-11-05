@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014,2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -142,7 +142,7 @@ static void _build_pre_ib_cmds(struct adreno_profile *profile,
 	IB_CMD(ibcmds, CP_MEM_WRITE, gpuaddr + data_offset,
 			drawctxt->base.id, data_offset);
 	IB_CMD(ibcmds, CP_MEM_WRITE, gpuaddr + data_offset,
-			drawctxt->base.proc_priv->pid, data_offset);
+			pid_nr(drawctxt->base.proc_priv->pid), data_offset);
 	IB_CMD(ibcmds, CP_MEM_WRITE, gpuaddr + data_offset,
 			drawctxt->base.tid, data_offset);
 	IB_CMD(ibcmds, CP_MEM_WRITE, gpuaddr + data_offset,
@@ -939,7 +939,7 @@ static ssize_t profile_pipe_print(struct file *filep, char __user *ubuf,
 
 		mutex_unlock(&device->mutex);
 		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(HZ / 10);
+		schedule_timeout(msecs_to_jiffies(100));
 		mutex_lock(&device->mutex);
 
 		if (signal_pending(current)) {

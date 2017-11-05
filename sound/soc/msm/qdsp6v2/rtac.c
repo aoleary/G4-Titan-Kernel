@@ -33,9 +33,7 @@
 
 /* Max size of payload (buf size - apr header) */
 #define MAX_PAYLOAD_SIZE		4076
-#define RTAC_MAX_ACTIVE_DEVICES		4
 #define RTAC_MAX_ACTIVE_VOICE_COMBOS	2
-#define RTAC_MAX_ACTIVE_POPP		8
 #define RTAC_BUF_SIZE			8192
 
 #define TIMEOUT_MS	1000
@@ -70,28 +68,7 @@ static struct rtac_apr_data	rtac_asm_apr_data[SESSION_MAX+1];
 static struct rtac_apr_data	rtac_afe_apr_data;
 static struct rtac_apr_data	rtac_voice_apr_data[RTAC_VOICE_MODES];
 
-
 /* ADM info & APR */
-struct rtac_popp_data {
-	uint32_t	popp;
-	uint32_t	popp_topology;
-};
-
-struct rtac_adm_data {
-	uint32_t		topology_id;
-	uint32_t		afe_port;
-	uint32_t		copp;
-	uint32_t		num_of_popp;
-	uint32_t		app_type;
-	uint32_t		acdb_dev_id;
-	struct rtac_popp_data	popp[RTAC_MAX_ACTIVE_POPP];
-};
-
-struct rtac_adm {
-	uint32_t			num_of_dev;
-	struct rtac_adm_data		device[RTAC_MAX_ACTIVE_DEVICES];
-};
-
 static struct rtac_adm		rtac_adm_data;
 static u32			*rtac_adm_buffer;
 
@@ -193,7 +170,7 @@ int rtac_allocate_cal_buffer(uint32_t cal_type)
 		goto done;
 	}
 
-	pr_debug("%s: cal_type %d, paddr 0x%pa, kvaddr 0x%p, map_size 0x%x\n",
+	pr_debug("%s: cal_type %d, paddr 0x%pa, kvaddr 0x%pK, map_size 0x%x\n",
 		__func__, cal_type,
 		&rtac_cal[cal_type].cal_data.paddr,
 		rtac_cal[cal_type].cal_data.kvaddr,
@@ -657,7 +634,7 @@ static int get_voice_index(u32 mode, u32 handle)
 /* ADM APR */
 void rtac_set_adm_handle(void *handle)
 {
-	pr_debug("%s: handle = %p\n", __func__, handle);
+	pr_debug("%s: handle = %pK\n", __func__, handle);
 
 	mutex_lock(&rtac_adm_apr_mutex);
 	rtac_adm_apr_data.apr_handle = handle;
@@ -715,7 +692,7 @@ u32 send_adm_apr(void *buf, u32 opcode)
 
 	if (copy_from_user(&user_buf_size, (void *)buf,
 						sizeof(user_buf_size))) {
-		pr_err("%s: Copy from user failed! buf = 0x%p\n",
+		pr_err("%s: Copy from user failed! buf = 0x%pK\n",
 		       __func__, buf);
 		goto done;
 	}
@@ -840,6 +817,14 @@ u32 send_adm_apr(void *buf, u32 opcode)
 		bytes_returned = ((u32 *)rtac_cal[ADM_RTAC_CAL].cal_data.
 			kvaddr)[2] + 3 * sizeof(u32);
 
+		if (bytes_returned > rtac_cal[ADM_RTAC_CAL].
+			map_data.map_size) {
+			pr_err("%s: Invalid data size = %d\n",
+				__func__, bytes_returned);
+			result = -EINVAL;
+			goto err;
+		}
+
 		if (bytes_returned > user_buf_size) {
 			pr_err("%s: User buf not big enough, size = 0x%x, returned size = 0x%x\n",
 				__func__, user_buf_size, bytes_returned);
@@ -921,7 +906,7 @@ u32 send_rtac_asm_apr(void *buf, u32 opcode)
 
 	if (copy_from_user(&user_buf_size, (void *)buf,
 						sizeof(user_buf_size))) {
-		pr_err("%s: Copy from user failed! buf = 0x%p\n",
+		pr_err("%s: Copy from user failed! buf = 0x%pK\n",
 		       __func__, buf);
 		goto done;
 	}
@@ -1048,6 +1033,14 @@ u32 send_rtac_asm_apr(void *buf, u32 opcode)
 		bytes_returned = ((u32 *)rtac_cal[ASM_RTAC_CAL].cal_data.
 			kvaddr)[2] + 3 * sizeof(u32);
 
+		if (bytes_returned > rtac_cal[ASM_RTAC_CAL].
+			map_data.map_size) {
+			pr_err("%s: Invalid data size = %d\n",
+				__func__, bytes_returned);
+			result = -EINVAL;
+			goto err;
+		}
+
 		if (bytes_returned > user_buf_size) {
 			pr_err("%s: User buf not big enough, size = 0x%x, returned size = 0x%x\n",
 				__func__, user_buf_size, bytes_returned);
@@ -1148,7 +1141,7 @@ static u32 send_rtac_afe_apr(void *buf, uint32_t opcode)
 
 	if (copy_from_user(&user_afe_buf, (void *)buf,
 		sizeof(struct rtac_afe_user_data))) {
-		pr_err("%s: Copy from user failed! buf = 0x%p\n",
+		pr_err("%s: Copy from user failed! buf = 0x%pK\n",
 		       __func__, buf);
 		goto done;
 	}
@@ -1291,6 +1284,14 @@ static u32 send_rtac_afe_apr(void *buf, uint32_t opcode)
 		bytes_returned = get_resp->param_size +
 				sizeof(struct afe_port_param_data_v2);
 
+		if (bytes_returned > rtac_cal[AFE_RTAC_CAL].
+			map_data.map_size) {
+			pr_err("%s: Invalid data size = %d\n",
+				__func__, bytes_returned);
+			result = -EINVAL;
+			goto err;
+		}
+
 		if (bytes_returned > user_afe_buf.buf_size) {
 			pr_err("%s: user size = 0x%x, returned size = 0x%x\n",
 				__func__, user_afe_buf.buf_size,
@@ -1372,7 +1373,7 @@ u32 send_voice_apr(u32 mode, void *buf, u32 opcode)
 
 	if (copy_from_user(&user_buf_size, (void *)buf,
 						sizeof(user_buf_size))) {
-		pr_err("%s: Copy from user failed! buf = 0x%p\n",
+		pr_err("%s: Copy from user failed! buf = 0x%pK\n",
 		       __func__, buf);
 		goto done;
 	}
@@ -1499,6 +1500,14 @@ u32 send_voice_apr(u32 mode, void *buf, u32 opcode)
 		bytes_returned = ((u32 *)rtac_cal[VOICE_RTAC_CAL].cal_data.
 			kvaddr)[2] + 3 * sizeof(u32);
 
+		if (bytes_returned > rtac_cal[VOICE_RTAC_CAL].
+			map_data.map_size) {
+			pr_err("%s: Invalid data size = %d\n",
+				__func__, bytes_returned);
+			result = -EINVAL;
+			goto err;
+		}
+
 		if (bytes_returned > user_buf_size) {
 			pr_err("%s: User buf not big enough, size = 0x%x, returned size = 0x%x\n",
 				__func__, user_buf_size, bytes_returned);
@@ -1521,6 +1530,12 @@ done:
 	return bytes_returned;
 }
 
+void get_rtac_adm_data(struct rtac_adm *adm_data)
+{
+	mutex_lock(&rtac_adm_mutex);
+	memcpy(adm_data, &rtac_adm_data, sizeof(struct rtac_adm));
+	mutex_unlock(&rtac_adm_mutex);
+}
 
 
 static long rtac_ioctl_shared(struct file *f,
@@ -1535,25 +1550,31 @@ static long rtac_ioctl_shared(struct file *f,
 
 	switch (cmd) {
 	case AUDIO_GET_RTAC_ADM_INFO: {
+		mutex_lock(&rtac_adm_mutex);
 		if (copy_to_user((void *)arg, &rtac_adm_data,
 						sizeof(rtac_adm_data))) {
 			pr_err("%s: copy_to_user failed for AUDIO_GET_RTAC_ADM_INFO\n",
 					__func__);
+			mutex_unlock(&rtac_adm_mutex);
 			return -EFAULT;
 		} else {
 			result = sizeof(rtac_adm_data);
 		}
+		mutex_unlock(&rtac_adm_mutex);
 		break;
 	}
 	case AUDIO_GET_RTAC_VOICE_INFO: {
+		mutex_lock(&rtac_voice_mutex);
 		if (copy_to_user((void *)arg, &rtac_voice_data,
 						sizeof(rtac_voice_data))) {
 			pr_err("%s: copy_to_user failed for AUDIO_GET_RTAC_VOICE_INFO\n",
 					__func__);
+			mutex_unlock(&rtac_voice_mutex);
 			return -EFAULT;
 		} else {
 			result = sizeof(rtac_voice_data);
 		}
+		mutex_unlock(&rtac_voice_mutex);
 		break;
 	}
 

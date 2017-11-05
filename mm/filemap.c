@@ -34,7 +34,6 @@
 #include <linux/memcontrol.h>
 #include <linux/cleancache.h>
 #include "internal.h"
-#include "../fs/sreadahead_prof.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/filemap.h>
@@ -519,10 +518,10 @@ struct page *__page_cache_alloc(gfp_t gfp)
 	if (cpuset_do_page_mem_spread()) {
 		unsigned int cpuset_mems_cookie;
 		do {
-			cpuset_mems_cookie = get_mems_allowed();
+			cpuset_mems_cookie = read_mems_allowed_begin();
 			n = cpuset_mem_spread_node();
 			page = alloc_pages_exact_node(n, gfp, 0);
-		} while (!put_mems_allowed(cpuset_mems_cookie) && !page);
+		} while (!page && read_mems_allowed_retry(cpuset_mems_cookie));
 
 		return page;
 	}
@@ -706,24 +705,59 @@ int __lock_page_or_retry(struct page *page, struct mm_struct *mm,
  * if called under rcu_read_lock.
  */
 pgoff_t page_cache_next_hole(struct address_space *mapping,
-                             pgoff_t index, unsigned long max_scan)
+			     pgoff_t index, unsigned long max_scan)
 {
-        unsigned long i;
+	unsigned long i;
 
-        for (i = 0; i < max_scan; i++) {
-                struct page *page;
+	for (i = 0; i < max_scan; i++) {
+		if (!radix_tree_lookup(&mapping->page_tree, index))
+			break;
+		index++;
+		if (index == 0)
+			break;
+	}
 
-                page = radix_tree_lookup(&mapping->page_tree, index);
-                if (!page || radix_tree_exceptional_entry(page))
-                        break;
-                index++;
-                if (index == 0)
-                        break;
-        }
-
-        return index;
+	return index;
 }
 EXPORT_SYMBOL(page_cache_next_hole);
+
+/**
+ * page_cache_prev_hole - find the prev hole (not-present entry)
+ * @mapping: mapping
+ * @index: index
+ * @max_scan: maximum range to search
+ *
+ * Search backwards in the range [max(index-max_scan+1, 0), index] for
+ * the first hole.
+ *
+ * Returns: the index of the hole if found, otherwise returns an index
+ * outside of the set specified (in which case 'index - return >=
+ * max_scan' will be true). In rare cases of wrap-around, ULONG_MAX
+ * will be returned.
+ *
+ * page_cache_prev_hole may be called under rcu_read_lock. However,
+ * like radix_tree_gang_lookup, this will not atomically search a
+ * snapshot of the tree at a single point in time. For example, if a
+ * hole is created at index 10, then subsequently a hole is created at
+ * index 5, page_cache_prev_hole covering both indexes may return 5 if
+ * called under rcu_read_lock.
+ */
+pgoff_t page_cache_prev_hole(struct address_space *mapping,
+			     pgoff_t index, unsigned long max_scan)
+{
+	unsigned long i;
+
+	for (i = 0; i < max_scan; i++) {
+		if (!radix_tree_lookup(&mapping->page_tree, index))
+			break;
+		index--;
+		if (index == ULONG_MAX)
+			break;
+	}
+
+	return index;
+}
+EXPORT_SYMBOL(page_cache_prev_hole);
 
 /**
  * find_get_page - find and get a page reference
@@ -1167,6 +1201,11 @@ static void do_generic_file_read(struct file *filp, loff_t *ppos,
 
 		cond_resched();
 find_page:
+		if (fatal_signal_pending(current)) {
+			error = -EINTR;
+			goto out;
+		}
+
 		page = find_get_page(mapping, index);
 		if (!page) {
 			page_cache_sync_readahead(mapping,
@@ -1569,25 +1608,7 @@ static int page_cache_read(struct file *file, pgoff_t offset)
 }
 
 #define MMAP_LOTSAMISS  (100)
-#define BOOT_OAT_FILE_NAME "boot.oat"
-#define BOOT_OAT_FILE_SIZE 8
-#define MAX_MMAP_READ_AHEAD_SIZE 128
 
-static inline int strncmp_ex(const char *cs, const char *ct, size_t count)
-{
-	unsigned char c1, c2;
-
-	while (count) {
-		c1 = *cs++;
-		c2 = *ct++;
-		if(c1 != c2)
-			return c1 < c2 ? -1 : 1;
-		if(!c1)
-			break;
-		count--;
-	}
-	return 0;
-}
 /*
  * Synchronous readahead happens when we don't even find
  * a page in the page cache at all.
@@ -1597,7 +1618,6 @@ static void do_sync_mmap_readahead(struct vm_area_struct *vma,
 				   struct file *file,
 				   pgoff_t offset)
 {
-	unsigned long ra_pages;
 	struct address_space *mapping = file->f_mapping;
 
 	/* If we don't want any read-ahead, don't bother */
@@ -1626,22 +1646,9 @@ static void do_sync_mmap_readahead(struct vm_area_struct *vma,
 	/*
 	 * mmap read-around
 	 */
-#ifdef CONFIG_READAHEAD_MMAP_SIZE_ENABLE
-	ra_pages = CONFIG_READAHEAD_MMAP_PAGE_CNT;
-
-	// To reduce application entry time...
-	if (file->f_path.dentry != NULL) {
-		if(strncmp_ex(BOOT_OAT_FILE_NAME, file->f_path.dentry->d_name.name,
-			BOOT_OAT_FILE_SIZE)==0) {
-			ra_pages = MAX_MMAP_READ_AHEAD_SIZE;
-		}
-	}
-#else
-	ra_pages = max_sane_readahead(ra->ra_pages);
-#endif
-	ra->start = max_t(long, 0, offset - ra_pages / 2);
-	ra->size = ra_pages;
-	ra->async_size = ra_pages / 4;
+	ra->start = max_t(long, 0, offset - ra->ra_pages / 2);
+	ra->size = ra->ra_pages;
+	ra->async_size = ra->ra_pages / 4;
 	ra_submit(ra, mapping, file);
 }
 
@@ -1709,15 +1716,6 @@ int filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 		/* No page in the page cache at all */
 		do_sync_mmap_readahead(vma, ra, file, offset);
 		count_vm_event(PGMAJFAULT);
-		/* LGE_CHANGE_S
-		*
-		* Profile files related to pgmajfault during 1st booting
-		* in order to use the data as readahead args
-		*
-		* matia.kim@lge.com 20130612
-		*/
-		sreadahead_prof(file, 0, 0);
-		/* LGE_CHANGE_E */
 		mem_cgroup_count_vm_event(vma->vm_mm, PGMAJFAULT);
 		ret = VM_FAULT_MAJOR;
 retry_find:
@@ -2433,9 +2431,14 @@ again:
 			break;
 		}
 
+		if (fatal_signal_pending(current)) {
+			status = -EINTR;
+			break;
+		}
+
 		status = a_ops->write_begin(file, mapping, pos, bytes, flags,
 						&page, &fsdata);
-		if (unlikely(status < 0))
+		if (unlikely(status))
 			break;
 
 		if (mapping_writably_mapped(mapping))
@@ -2473,10 +2476,6 @@ again:
 		written += copied;
 
 		balance_dirty_pages_ratelimited(mapping);
-		if (fatal_signal_pending(current)) {
-			status = -EINTR;
-			break;
-		}
 	} while (iov_iter_count(i));
 
 	return written ? written : status;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2017. The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -102,7 +102,7 @@ _get_priv_from_kobj(struct kobject *kobj)
 		return NULL;
 
 	list_for_each_entry(private, &kgsl_driver.process_list, list) {
-		if (private->pid == name)
+		if (pid_nr(private->pid) == name)
 			return private;
 	}
 
@@ -196,37 +196,36 @@ kgsl_process_uninit_sysfs(struct kgsl_process_private *private)
  * @device: Pointer to kgsl device struct
  * @private: Pointer to the structure for the process
  *
- * @returns: 0 on success, error code otherwise
- *
  * kgsl_process_init_sysfs() is called at the time of creating the
  * process struct when a process opens the kgsl device for the first time.
  * This function creates the sysfs files for the process.
  */
-int
-kgsl_process_init_sysfs(struct kgsl_device *device,
+void kgsl_process_init_sysfs(struct kgsl_device *device,
 		struct kgsl_process_private *private)
 {
 	unsigned char name[16];
-	int i, ret = 0;
+	int i;
 
-	snprintf(name, sizeof(name), "%d", private->pid);
+	snprintf(name, sizeof(name), "%d", pid_nr(private->pid));
 
-	ret = kobject_init_and_add(&private->kobj, &ktype_mem_entry,
-		kgsl_driver.prockobj, name);
-
-	if (ret)
-		return ret;
+	if (kobject_init_and_add(&private->kobj, &ktype_mem_entry,
+		kgsl_driver.prockobj, name)) {
+		WARN(1, "Unable to add sysfs dir '%s'\n", name);
+		return;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(mem_stats); i++) {
-		/* We need to check the value of sysfs_create_file, but we
-		 * don't really care if it passed or not */
+		if (sysfs_create_file(&private->kobj,
+			&mem_stats[i].attr.attr))
+			WARN(1, "Couldn't create sysfs file '%s'\n",
+				mem_stats[i].attr.attr.name);
 
-		ret = sysfs_create_file(&private->kobj,
-			&mem_stats[i].attr.attr);
-		ret = sysfs_create_file(&private->kobj,
-			&mem_stats[i].max_attr.attr);
+		if (sysfs_create_file(&private->kobj,
+			&mem_stats[i].max_attr.attr))
+			WARN(1, "Couldn't create sysfs file '%s'\n",
+				mem_stats[i].max_attr.attr.name);
+
 	}
-	return ret;
 }
 
 static ssize_t kgsl_drv_memstat_show(struct device *dev,
@@ -398,8 +397,10 @@ orginal_code:
 		get_page(page);
 		vmf->page = page;
 
-		return 0;
-	}
+
+			return 0;
+		}
+
 
 	return VM_FAULT_SIGBUS;
 }
@@ -560,49 +561,119 @@ static inline unsigned int _fixup_cache_range_op(unsigned int op)
 }
 #endif
 
-int kgsl_cache_range_op(struct kgsl_memdesc *memdesc, size_t offset,
-			size_t size, unsigned int op)
+static int kgsl_do_cache_op(struct page *page, void *addr,
+		uint64_t offset, uint64_t size, unsigned int op)
 {
-	/*
-	 * If the buffer is mapped in the kernel operate on that address
-	 * otherwise use the user address
-	 */
-
-	void *addr = (memdesc->hostptr) ?
-		memdesc->hostptr : (void *) memdesc->useraddr;
-
-	/* Make sure that size is non-zero */
-	if (!size)
-		return -EINVAL;
-
-	/* Check that offset+length does not exceed memdesc->size */
-	if ((offset + size) > memdesc->size)
-		return -ERANGE;
-
-	/* Return quietly if the buffer isn't mapped on the CPU */
-	if (addr == NULL)
-		return 0;
-
-	addr = addr + offset;
+	void (*cache_op)(const void *, const void *);
 
 	/*
 	 * The dmac_xxx_range functions handle addresses and sizes that
 	 * are not aligned to the cacheline size correctly.
 	 */
-
 	switch (_fixup_cache_range_op(op)) {
 	case KGSL_CACHE_OP_FLUSH:
-		dmac_flush_range(addr, addr + size);
+		cache_op = dmac_flush_range;
 		break;
 	case KGSL_CACHE_OP_CLEAN:
-		dmac_clean_range(addr, addr + size);
+		cache_op = dmac_clean_range;
 		break;
 	case KGSL_CACHE_OP_INV:
-		dmac_inv_range(addr, addr + size);
+		cache_op = dmac_inv_range;
 		break;
+	default:
+		return -EINVAL;
 	}
 
+	if (page != NULL) {
+		unsigned long pfn = page_to_pfn(page) + offset / PAGE_SIZE;
+		/*
+		 *  page_address() returns the kernel virtual address of page.
+		 *  For high memory kernel virtual address exists only if page
+		 *  has been mapped. So use a version of kmap rather than
+		 *  page_address() for high memory.
+		 */
+		if (PageHighMem(page)) {
+			offset &= ~PAGE_MASK;
+
+			do {
+				unsigned int len = size;
+
+				if (len + offset > PAGE_SIZE)
+					len = PAGE_SIZE - offset;
+
+				page = pfn_to_page(pfn++);
+				addr = kmap_atomic(page);
+				cache_op(addr + offset, addr + offset + len);
+				kunmap_atomic(addr);
+
+				size -= len;
+				offset = 0;
+			} while (size);
+
+			return 0;
+		}
+
+		addr = page_address(page);
+	}
+
+	cache_op(addr + offset, addr + offset + (size_t) size);
 	return 0;
+}
+
+int kgsl_cache_range_op(struct kgsl_memdesc *memdesc, size_t offset,
+		size_t size, unsigned int op)
+{
+	void *addr = NULL;
+	int ret = 0;
+
+	if (size == 0 || size > UINT_MAX)
+		return -EINVAL;
+
+	/* Make sure that the offset + size does not overflow */
+	if ((offset + size < offset) || (offset + size < size))
+		return -ERANGE;
+
+	/* Check that offset+length does not exceed memdesc->size */
+	if ((offset + size) > memdesc->size)
+		return -ERANGE;
+
+	if (memdesc->hostptr) {
+		addr = memdesc->hostptr;
+		/* Make sure the offset + size do not overflow the address */
+		if (addr + ((size_t) offset + (size_t) size) < addr)
+			return -ERANGE;
+
+		ret = kgsl_do_cache_op(NULL, addr, offset, size, op);
+		return ret;
+	}
+
+	/*
+	 * If the buffer is not to mapped to kernel, perform cache
+	 * operations after mapping to kernel.
+	 */
+	if (memdesc->sg) {
+		struct scatterlist *sg;
+		unsigned int i, pos = 0;
+
+		for_each_sg(memdesc->sg, sg, memdesc->sglen, i) {
+			uint64_t sg_offset, sg_left;
+
+			if (offset >= (pos + sg->length)) {
+				pos += sg->length;
+				continue;
+			}
+			sg_offset = offset > pos ? offset - pos : 0;
+			sg_left = (sg->length - sg_offset > size) ? size :
+						sg->length - sg_offset;
+			ret = kgsl_do_cache_op(sg_page(sg), NULL, sg_offset,
+								sg_left, op);
+			size -= sg_left;
+			if (size == 0)
+				break;
+			pos += sg->length;
+		}
+	}
+	return ret;
 }
 EXPORT_SYMBOL(kgsl_cache_range_op);
 
@@ -625,7 +696,7 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 			size_t size)
 {
 	int pcount = 0, ret = 0;
-	int j, page_size, sglen_alloc;
+	int j, page_size, sglen_alloc, sglen = 0;
 	size_t len;
 	pgprot_t page_prot = pgprot_writecombine(PAGE_KERNEL);
 	void *ptr;
@@ -713,6 +784,12 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 				continue;
 			}
 
+			/*
+			 * Update sglen and memdesc size,as requested allocation
+			 * not served fully. So that they can be correctly freed
+			 * in kgsl_sharedmem_free().
+			 */
+			memdesc->sglen = sglen;
 			memdesc->size = (size - len);
 
 			KGSL_CORE_ERR(
@@ -729,6 +806,8 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 		len -= page_size;
 		memdesc->page_count = pcount;
 	}
+
+	memdesc->sglen = sglen;
 	memdesc->size = size;
 
 	/*

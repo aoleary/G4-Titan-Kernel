@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2015, 2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -722,6 +722,15 @@ static int wcd_cpe_enable(struct wcd_cpe_core *core,
 	int ret = 0;
 
 	if (enable) {
+		/* Reset CPE first */
+		ret = cpe_svc_reset(core->cpe_handle);
+		if (IS_ERR_VALUE(ret)) {
+			dev_err(core->dev,
+				"%s: Failed to reset CPE with error %d\n",
+				__func__, ret);
+			goto done;
+		}
+
 		ret = wcd_cpe_setup_irqs(core);
 		if (ret) {
 			dev_err(core->dev,
@@ -780,11 +789,10 @@ static int wcd_cpe_enable(struct wcd_cpe_core *core,
 			goto done;
 		}
 
-		/* Reset CPE first */
-		ret = cpe_svc_reset(core->cpe_handle);
+		ret = cpe_svc_shutdown(core->cpe_handle);
 		if (IS_ERR_VALUE(ret)) {
 			dev_err(core->dev,
-				"%s: Failed to reset CPE with error %d\n",
+				"%s: CPE shutdown failed, error %d\n",
 				__func__, ret);
 			goto done;
 		}
@@ -1241,6 +1249,16 @@ static void wcd_cpe_svc_event_cb(const struct cpe_svc_notification *param)
 		complete(&core->online_compl);
 		break;
 	case CPE_SVC_OFFLINE:
+
+		/*
+		 * offline can happen during normal shutdown,
+		 * but we are interested in offline only during
+		 * SSR.
+		 */
+		if (core->ssr_type != WCD_CPE_SSR_EVENT ||
+		    core->ssr_type != WCD_CPE_BUS_DOWN_EVENT)
+			break;
+
 		active_sessions = wcd_cpe_lsm_session_active();
 		wcd_cpe_change_online_state(core, 0);
 		complete(&core->offline_compl);
@@ -1604,6 +1622,7 @@ struct wcd_cpe_core *wcd_cpe_init(const char *img_fname,
 	init_completion(&core->online_compl);
 	init_waitqueue_head(&core->ssr_entry.offline_poll_wait);
 	mutex_init(&core->ssr_lock);
+	mutex_init(&core->session_lock);
 	core->cpe_users = 0;
 
 	/*
@@ -1835,6 +1854,8 @@ static int wcd_cpe_cmi_send_lsm_msg(
 	if (CMI_HDR_GET_OBM_FLAG(hdr))
 		wcd_cpe_bus_vote_max_bw(core, true);
 
+	INIT_COMPLETION(session->cmd_comp);
+
 	ret = cmi_send_msg(message);
 	if (ret) {
 		pr_err("%s: msg opcode (0x%x) send failed (%d)\n",
@@ -1858,8 +1879,6 @@ static int wcd_cpe_cmi_send_lsm_msg(
 
 
 rel_bus_vote:
-
-	INIT_COMPLETION(session->cmd_comp);
 
 	if (CMI_HDR_GET_OBM_FLAG(hdr))
 		wcd_cpe_bus_vote_max_bw(core, false);
@@ -2159,6 +2178,13 @@ static int wcd_cpe_send_lsm_cal(
 	if (!lsm_cal) {
 		pr_err("%s: failed to get lsm cal block\n", __func__);
 		rc = -EINVAL;
+		goto unlock_cal_mutex;
+	}
+
+	if (lsm_cal->cal_data.size == 0) {
+		dev_dbg(core->dev, "%s: No LSM cal to send\n",
+			__func__);
+		rc = 0;
 		goto unlock_cal_mutex;
 	}
 
@@ -2559,6 +2585,7 @@ static struct cpe_lsm_session *wcd_cpe_alloc_lsm_session(
 	 * If this is the first session to be allocated,
 	 * only then register the afe service.
 	 */
+	WCD_CPE_GRAB_LOCK(&core->session_lock, "session_lock");
 	if (!wcd_cpe_lsm_session_active())
 		afe_register_service = true;
 
@@ -2570,6 +2597,7 @@ static struct cpe_lsm_session *wcd_cpe_alloc_lsm_session(
 		dev_err(core->dev,
 			"%s: max allowed sessions already allocated\n",
 			__func__);
+		WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 		return NULL;
 	}
 
@@ -2578,6 +2606,7 @@ static struct cpe_lsm_session *wcd_cpe_alloc_lsm_session(
 		dev_err(core->dev,
 			"%s: Failed to enable cpe, err = %d\n",
 			__func__, ret);
+		WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 		return NULL;
 	}
 
@@ -2618,6 +2647,8 @@ static struct cpe_lsm_session *wcd_cpe_alloc_lsm_session(
 	init_completion(&session->cmd_comp);
 
 	lsm_sessions[session_id] = session;
+
+	WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 	return session;
 
 err_afe_svc_reg:
@@ -2629,6 +2660,7 @@ err_ret:
 
 err_session_alloc:
 	wcd_cpe_vote(core, false);
+	WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 	return NULL;
 }
 
@@ -2665,6 +2697,8 @@ static int wcd_cpe_lsm_config_lab_latency(
 	lab_lat->param.param_id = CPE_LSM_PARAM_ID_LAB_CONFIG;
 	lab_lat->param.param_size = PARAM_SIZE_LSM_LATENCY_SIZE;
 	lab_lat->param.reserved = 0;
+
+	WCD_CPE_GRAB_LOCK(&session->lsm_lock, "lsm");
 	pr_debug("%s: Module 0x%x Param 0x%x size 0x%x pld_size 0x%x\n",
 		  __func__, lab_lat->param.module_id,
 		 lab_lat->param.param_id, lab_lat->param.param_size,
@@ -2674,9 +2708,13 @@ static int wcd_cpe_lsm_config_lab_latency(
 	if (ret != 0) {
 		pr_err("%s: lsm_set_params failed, error = %d\n",
 		       __func__, ret);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto unlock;
 	}
-	return 0;
+
+unlock:
+	WCD_CPE_REL_LOCK(&session->lsm_lock, "lsm");
+	return ret;
 }
 
 /*
@@ -2850,6 +2888,8 @@ static int wcd_cpe_lsm_lab_enable_disable(
 	lab_enable->param.param_id = CPE_LSM_PARAM_ID_LAB_ENABLE;
 	lab_enable->param.param_size = PARAM_SIZE_LSM_CONTROL_SIZE;
 	lab_enable->param.reserved = 0;
+
+	WCD_CPE_GRAB_LOCK(&session->lsm_lock, "lsm");
 	pr_debug("%s: Module 0x%x, Param 0x%x size 0x%x pld_size 0x%x\n",
 		 __func__, lab_enable->param.module_id,
 		 lab_enable->param.param_id, lab_enable->param.param_size,
@@ -2858,8 +2898,11 @@ static int wcd_cpe_lsm_lab_enable_disable(
 	if (ret != 0) {
 		pr_err("%s: lsm_set_params failed, error = %d\n",
 			__func__, ret);
+		WCD_CPE_REL_LOCK(&session->lsm_lock, "lsm");
 		return -EINVAL;
 	}
+	WCD_CPE_REL_LOCK(&session->lsm_lock, "lsm");
+
 	if (lab_enable->enable)
 		wcd_cpe_lsm_config_lab_latency(core, session,
 					       WCD_CPE_LAB_MAX_LATENCY);
@@ -2944,9 +2987,11 @@ static int wcd_cpe_dealloc_lsm_session(void *core_handle,
 	struct wcd_cpe_core *core = core_handle;
 	int ret = 0;
 
+	WCD_CPE_GRAB_LOCK(&core->session_lock, "session_lock");
 	if (!session) {
 		dev_err(core->dev,
 			"%s: Invalid lsm session\n", __func__);
+		WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 		return -EINVAL;
 	}
 
@@ -2957,6 +3002,7 @@ static int wcd_cpe_dealloc_lsm_session(void *core_handle,
 			"%s: Wrong session id %d max allowed = %d\n",
 			__func__, session->id,
 			WCD_CPE_LSM_MAX_SESSIONS);
+		WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 		return -EINVAL;
 	}
 
@@ -2965,18 +3011,19 @@ static int wcd_cpe_dealloc_lsm_session(void *core_handle,
 	lsm_sessions[session->id] = NULL;
 	kfree(session);
 
-	ret = wcd_cpe_vote(core, false);
-	if (ret)
-		dev_dbg(core->dev,
-			"%s: Failed to un-vote cpe, err = %d\n",
-			__func__, ret);
-
 	if (!wcd_cpe_lsm_session_active()) {
 		cmi_deregister(core->cmi_afe_handle);
 		core->cmi_afe_handle = NULL;
 		wcd_cpe_deinitialize_afe_port_data();
 	}
 
+	ret = wcd_cpe_vote(core, false);
+	if (ret)
+		dev_dbg(core->dev,
+			"%s: Failed to un-vote cpe, err = %d\n",
+			__func__, ret);
+
+	WCD_CPE_REL_LOCK(&core->session_lock, "session_lock");
 	return ret;
 }
 
@@ -3355,6 +3402,13 @@ static int wcd_cpe_send_afe_cal(void *core_handle,
 		pr_err("%s: failed to get afe cal block\n",
 			__func__);
 		rc = -EINVAL;
+		goto rel_cal_mutex;
+	}
+
+	if (afe_cal->cal_data.size == 0) {
+		dev_dbg(core->dev, "%s: No AFE cal to send\n",
+			__func__);
+		rc = 0;
 		goto rel_cal_mutex;
 	}
 

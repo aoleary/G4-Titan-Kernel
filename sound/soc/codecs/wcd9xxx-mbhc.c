@@ -89,6 +89,7 @@ extern int get_es9018_power_state(void);
 #define SWCH_IRQ_REMOVE_DEBOUNCE_TIME_US 5000
 
 #define GND_MIC_SWAP_THRESHOLD 2
+#define HIGH_HPH_THRESHOLD 5
 #define OCP_ATTEMPT 1
 
 #define FW_READ_ATTEMPTS 15
@@ -354,7 +355,7 @@ static void lge_set_switch_device(struct wcd9xxx_mbhc *mbhc, int state)
 		if(retry_flag == 0){
 			retry_flag = 1;
 			pr_debug("[LGE MBHC] %s: vdce ( 4 < value < 11) retry!! \n", __func__);
-			schedule_delayed_work(&mbhc->mbhc_detect_for_boot,
+			queue_delayed_work(system_power_efficient_wq,&mbhc->mbhc_detect_for_boot,
 									 usecs_to_jiffies(1000000));
 		} else {
 			pr_debug("[LGE MBHC] %s: retry flag set \n", __func__);
@@ -478,6 +479,11 @@ static bool __wcd9xxx_switch_micbias(struct wcd9xxx_mbhc *mbhc,
 			   0x04;
 		if (!override)
 			wcd9xxx_turn_onoff_override(mbhc, true);
+
+		snd_soc_update_bits(codec, WCD9XXX_A_MAD_ANA_CTRL,
+				    0x10, 0x00);
+		snd_soc_update_bits(codec, WCD9XXX_A_LDO_H_MODE_1,
+				    0x20, 0x00);
 		/* Adjust threshold if Mic Bias voltage changes */
 		if (d->micb_mv != VDDIO_MICBIAS_MV) {
 			cfilt_k_val = __wcd9xxx_resmgr_get_k_val(mbhc,
@@ -539,6 +545,11 @@ static bool __wcd9xxx_switch_micbias(struct wcd9xxx_mbhc *mbhc,
 		if ((!checkpolling || mbhc->polling_active) &&
 		    restartpolling)
 			wcd9xxx_pause_hs_polling(mbhc);
+
+		snd_soc_update_bits(codec, WCD9XXX_A_MAD_ANA_CTRL,
+				    0x10, 0x10);
+		snd_soc_update_bits(codec, WCD9XXX_A_LDO_H_MODE_1,
+				    0x20, 0x20);
 		/* Reprogram thresholds */
 		if (d->micb_mv != VDDIO_MICBIAS_MV) {
 			cfilt_k_val =
@@ -2172,8 +2183,8 @@ wcd9xxx_codec_cs_get_plug_type(struct wcd9xxx_mbhc *mbhc, bool highhph)
 	rt[0].mic_bias = false;
 
 	for (i = 1; i < NUM_DCE_PLUG_INS_DETECT - 1; i++) {
-		rt[i].swap_gnd = (i == NUM_DCE_PLUG_INS_DETECT - 3);
-		rt[i].mic_bias = ((i == NUM_DCE_PLUG_INS_DETECT - 4) &&
+		rt[i].swap_gnd = false;
+		rt[i].mic_bias = ((i == NUM_DCE_PLUG_INS_DETECT - 2) &&
 				   highhph);
 		rt[i].hphl_status = wcd9xxx_hphl_status(mbhc);
 		if (rt[i].swap_gnd)
@@ -2250,7 +2261,7 @@ wcd9xxx_codec_get_plug_type(struct wcd9xxx_mbhc *mbhc, bool highhph)
 	rt[0].vddio = false;
 	rt[0].hwvalue = true;
 	for (i = 1; i < NUM_DCE_PLUG_INS_DETECT; i++) {
-		rt[i].swap_gnd = (i == NUM_DCE_PLUG_INS_DETECT - 2);
+		rt[i].swap_gnd = false;
 		if (detect_use_vddio_switch)
 			rt[i].vddio = (i == 1);
 		else
@@ -2790,7 +2801,7 @@ static void wcd9xxx_mbhc_decide_swch_plug(struct wcd9xxx_mbhc *mbhc)
 			 __func__, plug_type);
 #ifdef CONFIG_MACH_LGE //miss_4pole_detected
 		mbhc->miss_4pole_detected = true;
-		schedule_delayed_work(&mbhc->miss_4pole_detected_dwork,
+		queue_delayed_work(system_power_efficient_wq,&mbhc->miss_4pole_detected_dwork,
 						 usecs_to_jiffies(400000));
 #endif //miss_4pole_detected
 		wcd9xxx_find_plug_and_report(mbhc, plug_type);
@@ -3440,6 +3451,7 @@ static inline void wcd9xxx_handle_gnd_mic_swap(struct wcd9xxx_mbhc *mbhc,
 		 * otherwise report unsupported plug
 		 */
 		mbhc->mbhc_cfg->swap_gnd_mic(mbhc->codec);
+		mbhc->is_jack_type_swchd = true;
 	} else if (pt_gnd_mic_swap_cnt >= GND_MIC_SWAP_THRESHOLD) {
 		/* Report UNSUPPORTED plug
 		 * and continue polling
@@ -3456,6 +3468,7 @@ static inline void wcd9xxx_handle_gnd_mic_swap(struct wcd9xxx_mbhc *mbhc,
 		if (mbhc->current_plug != plug_type)
 			wcd9xxx_report_plug(mbhc, 1,
 					SND_JACK_UNSUPPORTED);
+		mbhc->is_jack_type_swchd = false;
 		WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
 	}
 }
@@ -3468,6 +3481,7 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 	unsigned long timeout;
 	int retry = 0, pt_gnd_mic_swap_cnt = 0;
 	int highhph_cnt = 0;
+	int pt_high_hph_cnt = 0;
 	bool correction = false;
 	bool current_source_enable;
 	bool wrk_complete = true, highhph = false;
@@ -3524,7 +3538,7 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 		WCD9XXX_BCL_LOCK(mbhc->resmgr);
 		if (current_source_enable)
 			plug_type = wcd9xxx_codec_cs_get_plug_type(mbhc,
-								   highhph);
+								   true);
 		else
 			plug_type = wcd9xxx_codec_get_plug_type(mbhc, true);
 		WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
@@ -3576,6 +3590,9 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 		} else if (plug_type == PLUG_TYPE_HIGH_HPH) {
 			pr_debug("%s: High HPH detected, continue polling\n",
 				  __func__);
+			pt_high_hph_cnt++;
+			if (pt_high_hph_cnt <= HIGH_HPH_THRESHOLD)
+				continue;
 			WCD9XXX_BCL_LOCK(mbhc->resmgr);
 			if (mbhc->mbhc_cfg->detect_extn_cable) {
 				if (mbhc->current_plug != plug_type)
@@ -3815,6 +3832,13 @@ static void wcd9xxx_swch_irq_handler(struct wcd9xxx_mbhc *mbhc)
 					    0x08, 0x00);
 			/* Turn off override */
 			wcd9xxx_turn_onoff_override(mbhc, false);
+
+			/* Set the jack switch to default */
+			if (mbhc->is_jack_type_swchd) {
+				mbhc->mbhc_cfg->swap_gnd_mic(codec);
+				mbhc->is_jack_type_swchd = false;
+				pr_debug("%s: Set the switch back", __func__);
+			}
 		}
 	}
 exit:
@@ -4103,8 +4127,8 @@ irqreturn_t wcd9xxx_dce_handler(int irq, void *data)
 	mbhc->mbhc_state = MBHC_STATE_POTENTIAL;
 
 	if (!mbhc->polling_active) {
-		pr_warn("%s: mbhc polling is not active, skip button press\n",
-			__func__);
+		pr_debug("%s: mbhc polling is not active, skip button press\n",
+			 __func__);
 		goto done;
 	}
 
@@ -4280,7 +4304,7 @@ irqreturn_t wcd9xxx_dce_handler(int irq, void *data)
 
 		mbhc->buttons_pressed |= mask;
 		wcd9xxx_lock_sleep(core_res);
-		if (schedule_delayed_work(&mbhc->mbhc_btn_dwork,
+		if (queue_delayed_work(system_power_efficient_wq,&mbhc->mbhc_btn_dwork,
 					  msecs_to_jiffies(400)) == 0) {
 			WARN(1, "Button pressed twice without release event\n");
 			wcd9xxx_unlock_sleep(core_res);
@@ -4692,7 +4716,10 @@ static void wcd9xxx_mbhc_setup(struct wcd9xxx_mbhc *mbhc)
 	gain = wcd9xxx_mbhc_cal_btn_det_mp(btn_det, MBHC_BTN_DET_GAIN);
 	snd_soc_update_bits(codec, WCD9XXX_A_CDC_MBHC_B2_CTL, 0x78,
 			    gain[idx] << 3);
-	snd_soc_update_bits(codec, WCD9XXX_A_MICB_2_MBHC, 0x04, 0x04);
+	if (mbhc->mbhc_cb && mbhc->mbhc_cb->get_cdc_type &&
+			mbhc->mbhc_cb->get_cdc_type() !=
+				WCD9XXX_CDC_TYPE_TOMTOM)
+		snd_soc_update_bits(codec, WCD9XXX_A_MICB_2_MBHC, 0x04, 0x04);
 
 	pr_debug("%s: leave\n", __func__);
 }
@@ -5146,12 +5173,12 @@ int wcd9xxx_mbhc_start(struct wcd9xxx_mbhc *mbhc,
 	    (mbhc->mbhc_cfg->read_fw_bin && mbhc->mbhc_cal)) {
 		rc = wcd9xxx_init_and_calibrate(mbhc);
 #ifdef CONFIG_MACH_LGE
-		schedule_delayed_work(&mbhc->mbhc_detect_for_boot,
+		queue_delayed_work(system_power_efficient_wq,&mbhc->mbhc_detect_for_boot,
 			     usecs_to_jiffies(CORRECT_SWCH_CHECK_FOR_BOOT));
 #endif
 	} else {
 		if (!mbhc->mbhc_fw || !mbhc->mbhc_cal)
-			schedule_delayed_work(&mbhc->mbhc_firmware_dwork,
+			queue_delayed_work(system_power_efficient_wq,&mbhc->mbhc_firmware_dwork,
 					     usecs_to_jiffies(FW_READ_TIMEOUT));
 		else
 			pr_debug("%s: Skipping to read mbhc fw, 0x%p %p\n",
@@ -5969,6 +5996,7 @@ int wcd9xxx_mbhc_init(struct wcd9xxx_mbhc *mbhc, struct wcd9xxx_resmgr *resmgr,
 	mbhc->intr_ids = mbhc_cdc_intr_ids;
 	mbhc->impedance_detect = impedance_det_en;
 	mbhc->hph_type = MBHC_HPH_NONE;
+	mbhc->is_jack_type_swchd = mbhc->is_jack_type_swchd;
 
 	if (mbhc->intr_ids == NULL) {
 		pr_err("%s: Interrupt mapping not provided\n", __func__);

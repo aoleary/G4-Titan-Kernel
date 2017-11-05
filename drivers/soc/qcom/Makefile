@@ -30,6 +30,8 @@ obj-$(CONFIG_MSM_RPM_SMD) += rpm-smd-debug.o
 endif
 obj-$(CONFIG_MSM_RPM_RBCPR_STATS_V2_LOG) += rpm_rbcpr_stats_v2.o
 obj-$(CONFIG_MSM_RPM_STATS_LOG) += rpm_stats.o rpm_master_stat.o
+CFLAGS_rpm_stats.o += -DCONFIG_DEBUG_FS
+CFLAGS_rpm_master_stat.o += -DCONFIG_DEBUG_FS
 obj-$(CONFIG_MSM_RPM_LOG) += rpm_log.o
 obj-$(CONFIG_QCOM_NPA_DUMP) += npa-dump.o
 obj-$(CONFIG_MSM_JTAG) += jtag-fuse.o jtag.o
@@ -45,8 +47,8 @@ obj-$(CONFIG_MSM_SMD) += smd.o smd_debug.o smd_private.o smd_init_dt.o smsm_debu
 obj-$(CONFIG_MSM_SMEM) += smem.o smem_debug.o
 obj-$(CONFIG_MSM_SMEM_LOGGING) += smem_log.o
 obj-$(CONFIG_MSM_COMMON_LOG) += common_log.o
-obj-$(CONFIG_MSM_SMP2P) += smp2p.o smp2p_debug.o smp2p_sleepstate.o
-obj-$(CONFIG_MSM_SMP2P_TEST) += smp2p_loopback.o smp2p_test.o smp2p_spinlock_test.o
+obj-$(CONFIG_MSM_SMP2P) += smp2p.o smp2p_debug.o smp2p_sleepstate.o smp2p_loopback.o
+obj-$(CONFIG_MSM_SMP2P_TEST) += smp2p_test.o smp2p_spinlock_test.o
 obj-$(CONFIG_MSM_WATCHDOG_V2) += watchdog_v2.o
 obj-$(CONFIG_MEM_SHARE_QMI_SERVICE)		+= memshare/
 obj-$(CONFIG_MSM_SPM) += spm.o spm_devices.o
@@ -88,3 +90,6 @@ obj-$(CONFIG_MSM_RTB) += msm_rtb-hotplug.o
 obj-$(CONFIG_QCOM_EARLY_RANDOM)	+= early_random.o
 obj-$(CONFIG_MSM_PACMAN)        += msm_pacman.o
 obj-$(CONFIG_MACH_LGE) += lge/
+
+obj-$(CONFIG_DIRTYSANTA_FIXUP) += dirtysanta_fixup.o
+obj-$(CONFIG_STATE_NOTIFIER)   += state_notifier.o
