@@ -913,12 +913,15 @@ static inline void sk_prot_clear_nulls(struct sock *sk, int size)
  * transport -> network interface is defined by struct inet_proto
  */
 struct proto {
-    void            (*close)(struct sock *sk,
-                    long timeout);
-    int            (*connect)(struct sock *sk,
-                    struct sockaddr *uaddr,
-                    int addr_len);
-    int            (*disconnect)(struct sock *sk, int flags);
+	void			(*close)(struct sock *sk,
+					long timeout);
+	int			(*pre_connect)(struct sock *sk,
+					struct sockaddr *uaddr,
+					int addr_len);
+	int			(*connect)(struct sock *sk,
+					struct sockaddr *uaddr,
+					int addr_len);
+	int			(*disconnect)(struct sock *sk, int flags);
 
     struct sock *        (*accept)(struct sock *sk, int flags, int *err);
 
