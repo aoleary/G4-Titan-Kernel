@@ -757,6 +757,7 @@ const char * const vmstat_text[] = {
 	"nr_free_cma",
 	"nr_dirty_threshold",
 	"nr_dirty_background_threshold",
+        "nr_indirectly_reclaimable",
 
 #ifdef CONFIG_VM_EVENT_COUNTERS
 	"pgpgin",

@@ -164,6 +164,7 @@ enum zone_stat_item {
 #ifdef CONFIG_PAGE_USAGE
 	NR_USE_PAGES,
 #endif
+        NR_INDIRECTLY_RECLAIMABLE_BYTES, /* measured in bytes */
 	NR_VM_ZONE_STAT_ITEMS };
 
 /*
