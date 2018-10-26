@@ -19,6 +19,7 @@
 #include <linux/fb.h>
 #include <linux/kthread.h>
 #include <linux/freezer.h>
+#include <linux/psi.h>
 #include <linux/module.h>
 #include <linux/drop_caches.h>
 #ifdef CONFIG_STATE_NOTIFIER
@@ -1184,14 +1185,17 @@ static int compact_thread_func(void *data)
 {
 	set_freezable();
 	for (;;) {
+		unsigned long pflags;
 		wait_event_freezable(compact_thread.waitqueue,
 				compact_thread_should_run());
 		if (compact_thread_should_run()) {
+                        psi_memstall_enter(&pflags);
 			sys_sync();
 			compact_nodes();
 			iterate_supers(drop_pagecache_sb, NULL);
 			drop_slab();
 			atomic_set(&compact_thread.should_run, 0);
+			psi_memstall_leave(&pflags);
 		}
 	}
 	return 0;
