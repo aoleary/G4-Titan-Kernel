@@ -1,0 +1,58 @@
+config ASMP
+	bool "Multi-core automatic hotplug support"
+	depends on SMP
+	default n
+	help
+	Automatically hotplugs the multiple cpu cores on and off
+	based on cpu load and suspend stat
+
+          Note that this will BREAK any runtime patching of the kernel text
+          (i.e. anything that uses apply_alternatives,
+          aarch64_insn_patch_text_nosync, etc. including the various CPU
+          errata workarounds in arch/arm64/kernel/cpu_errata.c).
+
+	  For MPU based protection-enabled targets please refer to
+	  MSM_KERNEL_PROTECT_MPU
+
+config THUNDERPLUG_CONTROL
+	bool "Enable plugging down/up of cores based on load per core"
+	depends on SMP && HOTPLUG_CPU
+	default n
+	help
+	  This driver hotplugs cpu cores based on per-core load
+
+config LAZYPLUG
+	bool "Lazyplug Conservative hotplugging for generic devices"
+	default n
+	help
+	  This enables the conservative hotplugging, lazyplug by arter97
+	  based on intelli_plug. Refer to the comments for more info.
+
+config ALUCARD_HOTPLUG
+	bool "Alucard hotplug"
+	default n
+	help
+	  Generic Alucard-hotplug cpu hotplug driver for ARM SOCs
+
+config INTELLI_HOTPLUG
+	bool "Intelli hotplug driver"
+	depends on HOTPLUG_CPU
+	default n
+	help
+	  An intelligent cpu hotplug driver for
+	  Low Latency Frequency Transition capable processors.
+
+config BLU_PLUG
+	bool "Dynamic hotplug driver"
+	depends on HOTPLUG_CPU
+	default n
+	help
+          The Dynamic hotplug driver automatically online/offline CPUs proportional to system load. 
+
+config MSM_HOTPLUG
+	bool "MSM hotplug driver"
+	depends on HOTPLUG_CPU
+	default n
+	help
+	  The MSM hotplug driver controls on-/offlining of additional cores based
+	  on current cpu load.
