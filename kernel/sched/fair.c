@@ -3434,7 +3434,7 @@ static inline void update_entity_load_avg(struct sched_entity *se,
 		 * See cpu_util().
 		 */
 		cpufreq_update_util(rq->clock,
-				    min(cfs_rq->runnable_load_avg, max), max);
+				    uclamp_util(rq, min(cfs_rq->runnable_load_avg, max)), max);
 	}
 }
 
@@ -8930,6 +8930,9 @@ const struct sched_class fair_sched_class = {
 #ifdef CONFIG_SCHED_HMP
 	.inc_hmp_sched_stats	= inc_hmp_sched_stats_fair,
 	.dec_hmp_sched_stats	= dec_hmp_sched_stats_fair,
+#endif
+#ifdef CONFIG_UCLAMP_TASK
+	.uclamp_enabled		= 1,
 #endif
 };
 
