@@ -341,6 +341,7 @@ struct qpnp_hap {
 	bool correct_lra_drive_freq;
 	bool misc_trim_error_rc19p2_clk_reg_present;
 	int td_value;
+	atomic_t disable_haptics_refcnt;
 };
 
 static struct qpnp_hap *ghap;
@@ -1627,6 +1628,29 @@ static int qpnp_hap_set(struct qpnp_hap *hap, int on)
 	return rc;
 }
 
+void qpnp_disable_haptics(void)
+{
+	struct qpnp_hap *hap;
+
+	hap = READ_ONCE(ghap);
+	if(!hap)
+		return;
+
+	atomic_inc(&hap->disable_haptics_refcnt);
+}
+
+
+void qpnp_enable_haptics(void)
+{
+	struct qpnp_hap *hap;
+
+	hap = READ_ONCE(ghap);
+	if(!hap)
+		return;
+
+	atomic_dec(&hap->disable_haptics_refcnt);
+}
+
 static void qpnp_timed_enable_worker(struct work_struct *work)
 {
 	struct qpnp_hap *hap = container_of(work, struct qpnp_hap,
@@ -1640,6 +1664,9 @@ static void qpnp_timed_enable_worker(struct work_struct *work)
 
 	/* Vibrator already disabled */
 	if (!value && !hap->state)
+		return;
+
+	if (value && atomic_read(&hap->disable_haptics_refcnt) > 0)
 		return;
 
 	flush_work(&hap->work);
@@ -1706,7 +1733,7 @@ static void qpnp_hap_td_enable(struct timed_output_dev *dev, int value)
 /* play pwm bytes */
 int qpnp_hap_play_byte(u8 data, bool on)
 {
-	struct qpnp_hap *hap = ghap;
+	struct qpnp_hap *hap = READ_ONCE(ghap);
 	int duty_ns, period_ns, duty_percent, rc;
 
 	if (!hap) {
@@ -2390,7 +2417,7 @@ static int qpnp_haptic_probe(struct spmi_device *spmi)
 		}
 	}
 
-	ghap = hap;
+	WRITE_ONCE(ghap, hap);
 
 	return 0;
 
