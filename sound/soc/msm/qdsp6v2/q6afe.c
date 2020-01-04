@@ -933,6 +933,63 @@ fail_cmd:
 
 }
 
+static struct cal_block_data *afe_find_cal_topo_id_by_port(
+			struct cal_type_data *cal_type, u16 port_id)
+{
+	struct list_head		*ptr, *next;
+	struct cal_block_data	*cal_block = NULL;
+	int32_t path;
+	struct audio_cal_info_afe_top *afe_top;
+
+	list_for_each_safe(ptr, next,
+		&cal_type->cal_blocks) {
+		cal_block = list_entry(ptr,
+			struct cal_block_data, list);
+
+		path = ((afe_get_port_type(port_id) ==
+			MSM_AFE_PORT_TYPE_TX)?(TX_DEVICE):(RX_DEVICE));
+		afe_top =
+		(struct audio_cal_info_afe_top *)cal_block->cal_info;
+		if (afe_top->path == path) {
+			pr_debug("%s: top_id:%x acdb_id:%d afe_port:%d\n",
+			__func__, afe_top->topology, afe_top->acdb_id,
+			q6audio_get_port_id(port_id));
+			return cal_block;
+		}
+	}
+	return NULL;
+}
+
+static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id)
+{
+	int ret = 0;
+
+	struct cal_block_data   *cal_block = NULL;
+	struct audio_cal_info_afe_top   *afe_top_info = NULL;
+
+	if (this_afe.cal_data[AFE_TOPOLOGY_CAL] == NULL) {
+		pr_err("%s: [AFE_TOPOLOGY_CAL] not initialized\n", __func__);
+		return -EINVAL;
+	}
+	if (topology_id == NULL) {
+		pr_err("%s: topology_id is NULL\n", __func__);
+		return -EINVAL;
+	}
+	*topology_id = 0;
+
+	mutex_lock(&this_afe.cal_data[AFE_TOPOLOGY_CAL]->lock);
+	cal_block = afe_find_cal_topo_id_by_port(
+		this_afe.cal_data[AFE_TOPOLOGY_CAL], port_id);
+	if (cal_block == NULL) {
+		pr_debug("%s: [AFE_TOPOLOGY_CAL] not initialized for this port %d\n",
+				__func__, port_id);
+		ret = -EINVAL;
+		goto unlock;
+	}
+>>>>>>> c53e3fc4caf65... ASoC: msm: kill logging spams
+
+}
+
 static void remap_cal_data(struct cal_block_data *cal_block, int cal_index)
 {
 	int ret = 0;
