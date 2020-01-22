@@ -103,7 +103,7 @@ struct security_class_mapping secclass_map[] = {
 	    "nlmsg_read", "nlmsg_write", NULL } },
 	{ "netlink_firewall_socket",
 	  { COMMON_SOCK_PERMS,
-	    "nlmsg_read", "nlmsg_write", NULL } },
+	    "nlmsg_read", "nlmsg_write", "nlmsg_readpriv", NULL } },
 	{ "netlink_tcpdiag_socket",
 	  { COMMON_SOCK_PERMS,
 	    "nlmsg_read", "nlmsg_write", NULL } },
