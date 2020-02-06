@@ -4944,6 +4944,8 @@ static int __init kgsl_core_init(void)
 
 	kgsl_memfree_init();
 
+	kgsl_sync_init();
+
 	return 0;
 
 err:
