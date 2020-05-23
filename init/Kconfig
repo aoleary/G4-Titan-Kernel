@@ -182,7 +182,7 @@ config DEFAULT_HOSTNAME
 config SWAP
 	bool "Support for paging of anonymous memory (swap)"
 	depends on MMU && BLOCK
-	default y
+	default n
 	help
 	  This option allows you to choose whether you want to have support
 	  for so called swap devices or swap files in your kernel that are
