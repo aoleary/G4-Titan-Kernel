@@ -349,7 +349,7 @@ static int msm_vb2_buf_done(struct vb2_buffer *vb, int session_id,
 
 	session = msm_get_session(session_id);
 	if (IS_ERR_OR_NULL(session))
-		return 0;
+		return -EINVAL;
 
 	read_lock(&session->stream_rwlock);
 
