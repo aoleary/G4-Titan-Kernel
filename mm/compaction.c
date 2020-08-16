@@ -25,6 +25,10 @@
 #endif
 #include "internal.h"
 
+/* parameter to enable/disable zones compation and drop cache while screen is off */
+static bool enable_compaction_drop_cache = 0;
+module_param(enable_compaction_drop_cache, bool, 0644);
+
 #ifdef CONFIG_COMPACTION
 static inline void count_compact_event(enum vm_event_item item)
 {
@@ -1197,8 +1201,10 @@ static int state_notifier_callback(struct notifier_block *this,
 {
 	switch (event) {
 		case STATE_NOTIFIER_SUSPEND:
-			del_timer_sync(&compact_thread.timer);
-			compact_thread_wakeup();
+            if (enable_compaction_drop_cache) {
+                del_timer_sync(&compact_thread.timer);
+                compact_thread_wakeup();
+            }
 			break;
 		case STATE_NOTIFIER_ACTIVE:
 			if (!timer_pending(&compact_thread.timer))
