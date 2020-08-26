@@ -390,6 +390,7 @@ int msm_create_session(unsigned int session_id, struct video_device *vdev)
 	msm_init_queue(&session->stream_q);
 	msm_enqueue(msm_session_q, &session->list);
 	mutex_init(&session->lock);
+	mutex_init(&session->lock_q);
 	return 0;
 }
 
@@ -548,6 +549,7 @@ int msm_destroy_session(unsigned int session_id)
 	msm_destroy_session_streams(session);
 	msm_remove_session_cmd_ack_q(session);
 	mutex_destroy(&session->lock);
+	mutex_destroy(&session->lock_q);
 	msm_delete_entry(msm_session_q, struct msm_session,
 		list, session);
 	buf_mgr_subdev = msm_buf_mngr_get_subdev();
@@ -809,8 +811,12 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 		wait_for_completion(&cmd_ack->wait_complete);
 	} else {
 	/* should wait on session based condition */
-		rc = wait_for_completion_timeout(&cmd_ack->wait_complete,
-				msecs_to_jiffies(timeout));
+		do {
+			rc = wait_for_completion_timeout(&cmd_ack->wait_complete,
+					msecs_to_jiffies(timeout));
+			if (rc != -ERESTARTSYS)
+				break;
+		} while (1);
 
 		if (list_empty_careful(&cmd_ack->command_q.list)) {
 			if (!rc) {
