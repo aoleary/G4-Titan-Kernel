@@ -73,3 +73,4 @@ obj-$(CONFIG_LGE_IRRC)		+= lge_uei_irrc.o
 obj-$(CONFIG_LGE_EVENT_LOCK) += lge_factory_misc.o
 obj-$(CONFIG_LGE_APPSPORT)		+= appsport.o
 obj-$(CONFIG_ITSON_API)				+= itson_module1/
+obj-$(CONFIG_BATTERY_SAVER)	+= battery_saver.o
