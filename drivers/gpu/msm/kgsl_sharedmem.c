@@ -388,8 +388,6 @@ static int kgsl_page_alloc_vmfault(struct kgsl_memdesc *memdesc,
 		get_page(page);
 		vmf->page = page;
 
-		memdesc->mapsize += PAGE_SIZE;
-
 		return 0;
 	}
 orginal_code:
@@ -400,8 +398,10 @@ orginal_code:
 		get_page(page);
 		vmf->page = page;
 
-		return 0;
-	}
+
+			return 0;
+		}
+
 
 	return VM_FAULT_SIGBUS;
 }
@@ -527,8 +527,6 @@ static int kgsl_contiguous_vmfault(struct kgsl_memdesc *memdesc,
 		return VM_FAULT_OOM;
 	else if (ret == -EFAULT)
 		return VM_FAULT_SIGBUS;
-
-	memdesc->mapsize += PAGE_SIZE;
 
 	return VM_FAULT_NOPAGE;
 }
