@@ -31,6 +31,9 @@
 
 #include "../../kernel/sched/sched.h"
 
+// Battery saver
+#include <linux/battery_saver.h>
+
 struct cpu_sync {
 	int cpu;
 	unsigned int input_boost_min;
@@ -296,6 +299,10 @@ void do_input_boost_max()
 	unsigned int i;
 	struct cpu_sync *i_sync_info;
 
+	if (is_battery_saver_on()) {
+		pr_info("Skipping boost as battery saver is on\n");
+		return;
+	}
 	cancel_delayed_work_sync(&input_boost_rem);
 
 	for_each_possible_cpu(i) {
@@ -320,6 +327,11 @@ static void do_input_boost(struct kthread_work *work)
 #ifdef CONFIG_DYNAMIC_STUNE_BOOST
 	cancel_delayed_work_sync(&dynamic_stune_boost_rem);
 #endif /* CONFIG_DYNAMIC_STUNE_BOOST */
+
+	if (is_battery_saver_on()) {
+		pr_info("Skipping boost as battery saver is on\n");
+		return;
+	}
 
 	cancel_delayed_work_sync(&input_boost_rem);
 	if (sched_boost_active) {
