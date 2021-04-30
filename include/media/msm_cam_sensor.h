@@ -26,23 +26,6 @@
 #define MAX_OIS_MOD_NAME_SIZE 32
 #define MAX_OIS_NAME_SIZE 32
 #define MAX_OIS_REG_SETTINGS 800
-/* LGE_CHANGE_S, proxy, 2014-09-02, byungsoo.moon@lge.com */
-#define MAX_PROXY_MOD_NAME_SIZE 32
-#define MAX_PROXY_NAME_SIZE 32
-#define MAX_PROXY_REG_SETTINGS 800
-/* LGE_CHANGE_E, proxy, 2014-09-02, byungsoo.moon@lge.com */
-
-/* LGE_CHANGE_S, tcs, 2015-01-14, booil.park@lge.com */
-#define MAX_TCS_MOD_NAME_SIZE 32
-#define MAX_TCS_NAME_SIZE 32
-#define MAX_TCS_REG_SETTINGS 800
-/* LGE_CHANGE_E, tcs, 2015-01-14, booil.park@lge.com */
-
-/* LGE_CHANGE_S, mh1, 2015-05-18, yt.jeon@lge.com */
-#define MAX_MH1_MOD_NAME_SIZE 32
-#define MAX_MH1_NAME_SIZE 32
-#define MAX_MH1_REG_SETTINGS 800
-/* LGE_CHANGE_E, mh1, 2015-05-18, yt.jeon@lge.com */
 
 #define MOVE_NEAR 0
 #define MOVE_FAR  1
@@ -102,20 +85,6 @@ enum sensor_sub_module_t {
 	SUB_MODULE_CSIPHY,
 	SUB_MODULE_CSIPHY_3D,
 	SUB_MODULE_OIS,
-/* LGE_CHANGE_S, proxy, 2014-09-16, byungsoo.moon@lge.com */
-	SUB_MODULE_PROXY,
-/* LGE_CHANGE_E, proxy, 2014-09-16, byungsoo.moon@lge.com */
-/* LGE_CHANGE_S, tcs, 2015-01-14, booil.park@lge.com */
-	SUB_MODULE_TCS,
-/* LGE_CHANGE_E, tcs, 2015-01-14, booil.park@lge.com */
-/* LGE_CHANGE_S, mh1, 2015-05-18, yt.jeon@lge.com */
-	SUB_MODULE_MH1,
-/* LGE_CHANGE_S, mh1, 2015-05-18, yt.jeon@lge.com */
-
-#if 0//defined(CONFIG_MSM_OTP) || defined(LGE_CAMERA_USE_OTP)
-	SUB_MODULE_OTP,
-#endif
-
 	SUB_MODULE_MAX,
 };
 
@@ -245,22 +214,6 @@ struct msm_sensor_info_t {
 	enum camb_position_t position;
 };
 
-/* LGE_CHANGE_S, ois, 2014-09-16, byungsoo.moon@lge.com */
-struct msm_ois_info_t{
-	char ois_provider[MAX_SENSOR_NAME];
-	int16_t gyro[2];
-	int16_t target[2];
-	int16_t hall[2];
-	uint8_t is_stable;
-};
-
-enum ois_ver_t {
-	OIS_VER_RELEASE,
-	OIS_VER_CALIBRATION,
-	OIS_VER_DEBUG
-};
-/* LGE_CHANGE_E, ois, 2014-09-16, byungsoo.moon@lge.com */
-
 struct camera_vreg_t {
 	const char *reg_name;
 	int min_voltage;
@@ -336,48 +289,6 @@ struct msm_eeprom_cfg_data {
 	} cfg;
 };
 
-#if 0//defined(CONFIG_MSM_OTP) || defined(LGE_CAMERA_USE_OTP)
-enum otp_cfg_type_t {
-	CFG_OTP_GET_INFO,
-	CFG_OTP_GET_CAL_DATA,
-	CFG_OTP_READ_CAL_DATA,
-	CFG_OTP_WRITE_DATA,
-	CFG_OTP_GET_MM_INFO,
-};
-
-struct otp_get_t {
-	uint32_t num_bytes;
-};
-
-struct otp_read_t {
-	uint8_t *dbuffer;
-	uint32_t num_bytes;
-};
-
-struct otp_write_t {
-	uint8_t *dbuffer;
-	uint32_t num_bytes;
-};
-
-struct otp_get_cmm_t {
-	uint32_t cmm_support;
-	uint32_t cmm_compression;
-	uint32_t cmm_size;
-};
-
-struct msm_otp_cfg_data {
-	enum otp_cfg_type_t cfgtype;
-	uint8_t is_supported;
-	union {
-		char otp_name[MAX_SENSOR_NAME];
-		struct otp_get_t get_data;
-		struct otp_read_t read_data;
-		struct otp_write_t write_data;
-		struct otp_get_cmm_t get_cmm_data;
-	} cfg;
-};
-#endif
-
 #ifdef CONFIG_COMPAT
 struct msm_sensor_power_setting32 {
 	enum msm_sensor_power_seq_type_t seq_type;
@@ -403,9 +314,6 @@ struct msm_camera_sensor_slave_info32 {
 	char actuator_name[32];
 	char ois_name[32];
 	char flash_name[32];
-#if 0//defined(CONFIG_MSM_OTP) || defined(LGE_CAMERA_USE_OTP)
-	char otp_name[32];
-#endif
 	enum msm_sensor_camera_id_t camera_id;
 	uint16_t slave_addr;
 	enum i2c_freq_mode_t i2c_freq_mode;
@@ -466,30 +374,6 @@ struct msm_eeprom_cfg_data32 {
 	} cfg;
 };
 
-
-#if 0//defined(CONFIG_MSM_OTP) || defined(LGE_CAMERA_USE_OTP)
-struct otp_read_t32 {
-	compat_uptr_t dbuffer;
-	uint32_t num_bytes;
-};
-
-struct otp_write_t32 {
-	compat_uptr_t dbuffer;
-	uint32_t num_bytes;
-};
-
-struct msm_otp_cfg_data32 {
-	enum otp_cfg_type_t cfgtype;
-	uint8_t is_supported;
-	union {
-		char otp_name[MAX_SENSOR_NAME];
-		struct otp_get_t get_data;
-		struct otp_read_t32 read_data;
-		struct otp_write_t32 write_data;
-	} cfg;
-};
-#endif
-
 struct msm_camera_i2c_seq_reg_setting32 {
 	compat_uptr_t reg_setting;
 	uint16_t size;
@@ -525,9 +409,6 @@ enum msm_sensor_cfg_type_t {
 	CFG_SET_AUTOFOCUS,
 	CFG_CANCEL_AUTOFOCUS,
 	CFG_SET_STREAM_TYPE,
-	CFG_GET_SENSER_TEMPERATURE, /* LGE_CHANGE, get sensor temperature, 2015-07-20, byungsoo.moon@lge.com */
-	CFG_SET_PREVIEW_TUNE_ON,        /* LGE_CHANGE, LGE Preview tunning for lowlight , 2015-12-28, soojong.jin@lge.com */
-	CFG_SET_PREVIEW_TUNE_OFF,         /* LGE_CHANGE, LGE Preview tunning for lowlight , 2015-12-28, soojong.jin@lge.com */
 };
 
 enum msm_actuator_cfg_type_t {
@@ -543,62 +424,11 @@ enum msm_actuator_cfg_type_t {
 
 enum msm_ois_cfg_type_t {
 	CFG_OIS_INIT,
-	CFG_GET_OIS_INFO, /* LGE_CHANGE_S, ois, 2014-09-16, byungsoo.moon@lge.com */
 	CFG_OIS_POWERDOWN,
-	CFG_OIS_INI_SET,  /* LGE_CHANGE_S, ois, 2014-09-16, byungsoo.moon@lge.com */
-	CFG_OIS_ENABLE,   /* LGE_CHANGE_S, ois, 2014-09-16, byungsoo.moon@lge.com */
-	CFG_OIS_DISABLE,  /* LGE_CHANGE_S, ois, 2014-09-16, byungsoo.moon@lge.com */
 	CFG_OIS_POWERUP,
 	CFG_OIS_CONTROL,
 	CFG_OIS_I2C_WRITE_SEQ_TABLE,
-	CFG_OIS_SET_MODE, /* LGE_CHANGE_S, proxy, 2014-09-16, byungsoo.moon@lge.com */
-	CFG_OIS_MOVE_LENS,/* LGE_CHANGE_S, proxy, 2014-09-16, byungsoo.moon@lge.com */
 };
-
-/* LGE_CHANGE_S, proxy, 2014-09-16, byungsoo.moon@lge.com */
-enum msm_proxy_cfg_type_t {
-	CFG_PROXY_INIT,
-	CFG_PROXY_ON,
-	CFG_PROXY_OFF,
-	CFG_GET_PROXY,
-	CFG_PROXY_THREAD_ON,
-	CFG_PROXY_THREAD_PAUSE,
-	CFG_PROXY_THREAD_RESTART,
-	CFG_PROXY_THREAD_OFF,
-	CFG_PROXY_CAL,
-	CFG_PROXY_POWERDOWN,
-	CFG_PROXY_POWERUP,
-};
-/* LGE_CHANGE_E, proxy, 2014-09-16, byungsoo.moon@lge.com */
-
-/* LGE_CHANGE_S, tcs, 2015-01-14, booil.park@lge.com */
-enum msm_tcs_cfg_type_t {
-	CFG_TCS_INIT,
-	CFG_TCS_ON,
-	CFG_TCS_OFF,
-	CFG_GET_TCS,
-	CFG_TCS_THREAD_ON,
-	CFG_TCS_THREAD_PAUSE,
-	CFG_TCS_THREAD_RESTART,
-	CFG_TCS_THREAD_OFF,
-	CFG_TCS_POWERDOWN,
-	CFG_TCS_POWERUP,
-	CFG_TCS_AAT_MODE,
-};
-/* LGE_CHANGE_E, tcs, 2015-01-14, booil.park@lge.com */
-
-/* LGE_CHANGE_S, mh1, 2015-05-18, yt.jeon@lge.com */
-enum msm_mh1_cfg_type_t {
-	CFG_MH1_INIT,
-	CFG_MH1_SET_CURRENT_RES,
-	CFG_MH1_SENSOR_MODE,
-	CFG_MH1_HDR_MODE,
-    CFG_MH1_AEC_UPDATE,
-    CFG_MH1_AWB_UPDATE,
-    CFG_MH1_SENSOR_EXP_GAIN,
-	CFG_MH1_SET_SHADING_TBL,
-};
-/* LGE_CHANGE_E, mh1, 2015-05-18, yt.jeon@lge.com */
 
 enum msm_ois_i2c_operation {
 	MSM_OIS_WRITE = 0,
@@ -625,53 +455,7 @@ struct msm_ois_params_t {
 
 struct msm_ois_set_info_t {
 	struct msm_ois_params_t ois_params;
-/* LGE_CHANGE_S, ois, 2014-09-16, byungsoo.moon@lge.com */
-	struct msm_ois_info_t *ois_info;
-	void	*setting;
-/* LGE_CHANGE_E, ois, 2014-09-16, byungsoo.moon@lge.com */
 };
-
-struct msm_proxy_info_t{
-	uint16_t proxy_val;
-	uint32_t proxy_conv;
-	uint32_t proxy_sig;
-	uint32_t proxy_amb;
-	uint32_t proxy_raw;
-	uint32_t cal_count;
-	uint32_t cal_done;
-};
-
-/* LGE_CHANGE_S, tcs, 2015-01-22, booil.park@lge.com */
-struct msm_tcs_info_t{
-	uint32_t status;
-	uint32_t clear;
-	uint32_t red;
-	uint32_t green;
-	uint32_t blue;
-	uint32_t ir;
-	uint32_t extra1;
-	uint32_t extra2;
-};
-/* LGE_CHANGE_E, tcs, 2015-01-22, booil.park@lge.com */
-
-/* LGE_CHANGE_S, mh1, 2015-05-18, yt.jeon@lge.com */
-struct msm_mh1_awb_info_t {
-  uint16_t awb_gain_r;
-  uint16_t awb_gain_b;
-  uint16_t awb_cct;
-};
-
-struct msm_mh1_exp_info_t {
-  uint32_t exp_time;
-  uint32_t gain;
-  uint16_t lux_index;
-  uint16_t flash_rate;
-};
-
-struct msm_mh1_info_t{
-	void *setting;
-};
-/* LGE_CHANGE_E, mh1, 2015-05-18, yt.joen@lge.com */
 
 struct msm_actuator_move_params_t {
 	int8_t dir;
@@ -750,39 +534,9 @@ struct msm_ois_cfg_data {
 	} cfg;
 };
 
-/* LGE_CHANGE_S, proxy, 2014-09-16, byungsoo.moon@lge.com */
-struct msm_proxy_cfg_data {
-	int cfgtype;
-	union {
-		struct msm_proxy_info_t set_info;
-	} cfg;
-};
-/* LGE_CHANGE_E, proxy, 2014-09-16, byungsoo.moon@lge.com */
-
-/* LGE_CHANGE_S, tcs, 2015-01-14, booil.park@lge.com */
-struct msm_tcs_cfg_data {
-	int cfgtype;
-	union {
-		struct msm_tcs_info_t set_info;
-} cfg;
-};
-/* LGE_CHANGE_E, tcs, 2015-01-14, booil.park@lge.com */
-
-/* LGE_CHANGE_S, mh1, 2015-05-18, yt.jeon@lge.com */
-struct msm_mh1_cfg_data {
-	int cfgtype;
-	union {
-		struct msm_mh1_info_t set_info;
-        uint8_t hdr_mode;
-        uint8_t sensor_mode;
-		uint8_t cur_res;
-        unsigned short *shading_tbl;
-} cfg;
-};
-/* LGE_CHANGE_E, mh1, 2015-05-18, yt.jeon@lge.com */
-
 struct msm_actuator_set_position_t {
 	uint16_t number_of_steps;
+	uint32_t hw_params;
 	uint16_t pos[MAX_NUMBER_OF_STEPS];
 	uint16_t delay[MAX_NUMBER_OF_STEPS];
 };
@@ -805,8 +559,6 @@ enum msm_camera_led_config_t {
 	MSM_CAMERA_LED_HIGH,
 	MSM_CAMERA_LED_INIT,
 	MSM_CAMERA_LED_RELEASE,
-	/* LGE: For torch, Video recording */
-	MSM_CAMERA_LED_TORCH,
 };
 
 struct msm_camera_led_cfg_t {
@@ -881,27 +633,9 @@ struct sensor_init_cfg_data {
 
 #define VIDIOC_MSM_OIS_CFG \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 11, struct msm_ois_cfg_data)
-/* LGE_CHANGE_S, proxy, 2014-09-16, byungsoo.moon@lge.com */
-#define VIDIOC_MSM_PROXY_CFG \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 12, struct msm_proxy_cfg_data)
-/* LGE_CHANGE_E, proxy, 2014-09-16, byungsoo.moon@lge.com */
 
 #define VIDIOC_MSM_FLASH_CFG \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 13, struct msm_flash_cfg_data_t)
-/*LGE_CHANGE_S, tcs, 2015-01-14, booil.park@lge.com*/
-#define VIDIOC_MSM_TCS_CFG \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 14, struct msm_tcs_cfg_data)
-/*LGE_CHANGE_E, tcs, 2015-01-14, booil.park@lge.com*/
-
-/* LGE_CHANGE_S, mh1, 2015-05-18, yt.jeon@lge.com */
-#define VIDIOC_MSM_MH1_CFG \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 15, struct msm_mh1_cfg_data)
-/* LGE_CHANGE_E, mh1, 2015-05-18, yt.jeon@lge.com */
-
-#if 0//defined(CONFIG_MSM_OTP) || defined(LGE_CAMERA_USE_OTP)
-#define VIDIOC_MSM_OTP_CFG \
-        _IOWR('V', BASE_VIDIOC_PRIVATE + 16, struct msm_otp_cfg_data)
-#endif
 
 #ifdef CONFIG_COMPAT
 struct msm_camera_i2c_reg_setting32 {
@@ -996,10 +730,6 @@ struct msm_ois_params_t32 {
 
 struct msm_ois_set_info_t32 {
 	struct msm_ois_params_t32 ois_params;
-/* LGE_CHANGE_S, ois, 2014-09-16, byungsoo.moon@lge.com */
-	compat_uptr_t ois_info;
-	compat_uptr_t setting;
-/* LGE_CHANGE_E, ois, 2014-09-16, byungsoo.moon@lge.com */
 };
 
 struct msm_ois_cfg_data32 {
@@ -1010,24 +740,6 @@ struct msm_ois_cfg_data32 {
 	} cfg;
 };
 
-/* LGE_CHANGE_S, proxy, 2014-09-16, byungsoo.moon@lge.com */
-struct msm_proxy_info_t32{
-	uint16_t proxy_val;
-	uint32_t proxy_conv;
-	uint32_t proxy_sig;
-	uint32_t proxy_amb;
-	uint32_t proxy_raw;
-	uint32_t cal_count;
-	uint32_t cal_done;
-};
-
-struct msm_proxy_cfg_data32 {
-	int cfgtype;
-	union {
-		struct msm_proxy_info_t set_info;
-	} cfg;
-};
-/* LGE_CHANGE_E, proxy, 2014-09-16, byungsoo.moon@lge.com */
 struct msm_flash_init_info_t32 {
 	enum msm_flash_driver_type flash_driver_type;
 	uint32_t slave_addr;
@@ -1044,42 +756,6 @@ struct msm_flash_cfg_data_t32 {
 		compat_uptr_t settings;
 	} cfg;
 };
-/* LGE_CHANGE_S, tcs, 2015-01-22, booil.park@lge.com */
-struct msm_tcs_info_t32{
-	uint32_t status;
-	uint32_t clear;
-	uint32_t red;
-	uint32_t green;
-	uint32_t blue;
-	uint32_t ir;
-	uint32_t extra1;
-	uint32_t extra2;
-};
-
-struct msm_tcs_cfg_data32 {
-	int cfgtype;
-	union {
-		struct msm_tcs_info_t set_info;
-	} cfg;
-};
-/* LGE_CHANGE_E, tcs, 2015-01-22, booil.park@lge.com */
-
-/* LGE_CHANGE_S, mh1, 2015-05-18, yt.jeon@lge.com */
-struct msm_mh1_info_t32{
-    compat_uptr_t setting;
-};
-
-struct msm_mh1_cfg_data32 {
-	int cfgtype;
-	union {
-		struct msm_mh1_info_t32 set_info;
-        uint8_t hdr_mode;
-        uint8_t sensor_mode;
-		uint8_t cur_res;
-		compat_uptr_t shading_tbl;
-} cfg;
-};
-/* LGE_CHANGE_E, mh1, 2015-05-18, yt.jeon@lge.com */
 
 #define VIDIOC_MSM_ACTUATOR_CFG32 \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 6, struct msm_actuator_cfg_data32)
@@ -1098,31 +774,12 @@ struct msm_mh1_cfg_data32 {
 
 #define VIDIOC_MSM_OIS_CFG32 \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 11, struct msm_ois_cfg_data32)
-/* LGE_CHANGE_S, proxy, 2014-09-16, byungsoo.moon@lge.com */
-#define VIDIOC_MSM_PROXY_CFG32 \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 12, struct msm_proxy_cfg_data32)
-/* LGE_CHANGE_E, proxy, 2014-09-16, byungsoo.moon@lge.com */
+
 #define VIDIOC_MSM_CSID_IO_CFG32 \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 5, struct csid_cfg_data32)
 
 #define VIDIOC_MSM_FLASH_CFG32 \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 13, struct msm_flash_cfg_data_t32)
-
-/* LGE_CHANGE_S, tcs, 2015-01-14, booil.park@lge.com */
-#define VIDIOC_MSM_TCS_CFG32 \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 14, struct msm_tcs_cfg_data32)
-/* LGE_CHANGE_E, tcs, 2015-01-14, booil.park@lge.com */
-
-/* LGE_CHANGE_S, mh1, 2015-05-18, yt.jeon@lge.com */
-#define VIDIOC_MSM_MH1_CFG32 \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 15, struct msm_mh1_cfg_data32)
-/* LGE_CHANGE_E, mh1, 2015-05-18, yt.jeon@lge.com */
-
-#if 0//defined(CONFIG_MSM_OTP) || defined(LGE_CAMERA_USE_OTP)
-#define VIDIOC_MSM_OTP_CFG32 \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 16, struct msm_otp_cfg_data32)
-#endif
-
 #endif
 
 #endif /* __LINUX_MSM_CAM_SENSOR_H */

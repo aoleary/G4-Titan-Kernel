@@ -55,19 +55,7 @@
 #define MSM_CAMERA_SUBDEV_SENSOR_INIT  14
 #define MSM_CAMERA_SUBDEV_OIS          15
 #define MSM_CAMERA_SUBDEV_FLASH        16
-/* LGE_CHANGE_S, proxy, 2014-09-16, byungsoo.moon@lge.com */
-#define MSM_CAMERA_SUBDEV_PROXY        17
-/* LGE_CHANGE_E, proxy, 2014-09-16, byungsoo.moon@lge.com */
-/* LGE_CHANGE_S, tcs, 2015-01-14, booil.park@lge.com */
-#define MSM_CAMERA_SUBDEV_TCS        18
-/* LGE_CHANGE_E, tcs, 2015-01-14, booil.park@lge.com */
-/* LGE_CHANGE_S, mh1, 2015-05-18, yt.jeon@lge.com */
-#define MSM_CAMERA_SUBDEV_MH1      19
-/* LGE_CHANGE_E, mh1, 2015-05-18, yt.jeon@lge.com */
-
-#if 0//defined(CONFIG_MSM_OTP) || defined(LGE_CAMERA_USE_OTP)
-#define MSM_CAMERA_SUBDEV_OTP       20
-#endif
+#define MSM_CAMERA_SUBDEV_TOF          17
 
 #define MSM_MAX_CAMERA_SENSORS  5
 
@@ -102,9 +90,7 @@
 #define MSM_CAMERA_MAPPING_CFG  (MSM_CAMERA_EVENT_MIN + 5)
 #define MSM_CAMERA_MAPPING_SES  (MSM_CAMERA_EVENT_MIN + 6)
 #define MSM_CAMERA_MSM_NOTIFY   (MSM_CAMERA_EVENT_MIN + 7)
-/*LGE_CHANGE, cst, added shutdown event*/
-#define MSM_CAMERA_SHUTDOWN     (MSM_CAMERA_EVENT_MIN + 8)
-#define MSM_CAMERA_EVENT_MAX    (MSM_CAMERA_EVENT_MIN + 9)
+#define MSM_CAMERA_EVENT_MAX    (MSM_CAMERA_EVENT_MIN + 8)
 
 /* data.command */
 #define MSM_CAMERA_PRIV_S_CROP		 (V4L2_CID_PRIVATE_BASE + 1)
