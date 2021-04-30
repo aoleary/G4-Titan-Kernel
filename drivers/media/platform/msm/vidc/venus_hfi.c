@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -804,7 +804,6 @@ static const u32 venus_hfi_bus_table[] = {
 	BUS_LOAD(1280, 736, 30),
 	BUS_LOAD(1280, 736, 60),
 	BUS_LOAD(1920, 1088, 30),
-	BUS_LOAD(2560, 1440, 30),
 	BUS_LOAD(1920, 1088, 60),
 	BUS_LOAD(3840, 2176, 24),
 	BUS_LOAD(4096, 2176, 24),
@@ -927,16 +926,15 @@ static int venus_hfi_vote_active_buses(void *dev,
 	} else if (!data) {
 		dprintk(VIDC_ERR, "Invalid voting data\n");
 		return -EINVAL;
+	} else if (num_data > MAX_SUPPORTED_INSTANCES_COUNT) {
+		dprintk(VIDC_ERR, "Invalid number of instances.\n");
+		return -EINVAL;
 	}
 
-	/* (Re-)alloc memory to store the new votes (in case we internally
-	 * re-vote after power collapse, which is transparent to client) */
-	cached_vote_data = krealloc(device->bus_load.vote_data, num_data *
-			sizeof(*cached_vote_data), GFP_KERNEL);
+	cached_vote_data = device->bus_load.vote_data;
 	if (!cached_vote_data) {
-		dprintk(VIDC_ERR, "Can't alloc memory to cache bus votes\n");
-		rc = -ENOMEM;
-		goto err_no_mem;
+		dprintk(VIDC_ERR, "Invalid bus load vote data\n");
+		return -EINVAL;
 	}
 
 	/* Alloc & init the load table */
@@ -1744,7 +1742,6 @@ static int venus_hfi_power_enable(void *dev)
 		dprintk(VIDC_ERR, "Invalid params: %pK\n", device);
 		return -EINVAL;
 	}
-	cancel_delayed_work_sync(&venus_hfi_pm_work);
 	mutex_lock(&device->write_lock);
 	rc = venus_hfi_power_on(device);
 	if (rc)
@@ -3363,7 +3360,6 @@ static void venus_hfi_response_handler(struct venus_hfi_device *device)
 
 static void venus_hfi_core_work_handler(struct work_struct *work)
 {
-	int rc = 0;
 	struct venus_hfi_device *device = list_first_entry(
 		&hal_ctxt.dev_head, struct venus_hfi_device, list);
 
@@ -3373,11 +3369,7 @@ static void venus_hfi_core_work_handler(struct work_struct *work)
 				device);
 		return;
 	}
-	mutex_lock(&device->write_lock);
-	rc = venus_hfi_power_on(device);
-	mutex_unlock(&device->write_lock);
-
-	if (rc) {
+	if (venus_hfi_power_enable(device)) {
 		dprintk(VIDC_ERR, "%s: Power enable failed\n", __func__);
 		return;
 	}
@@ -3746,9 +3738,16 @@ static int venus_hfi_init_bus(struct venus_hfi_device *device)
 		dprintk(VIDC_DBG, "Registered bus client %s\n", name);
 	}
 
-	device->bus_load.vote_data = NULL;
-	device->bus_load.vote_data_count = 0;
+	device->bus_load.vote_data = (struct vidc_bus_vote_data *)
+			kzalloc(sizeof(struct vidc_bus_vote_data) *
+				MAX_SUPPORTED_INSTANCES_COUNT, GFP_KERNEL);
 
+	if (device->bus_load.vote_data == NULL) {
+		dprintk(VIDC_ERR, "Failed to allocate memory for vote_data\n");
+		rc = -ENOMEM;
+		goto err_init_bus;
+	}
+	device->bus_load.vote_data_count = 0;
 	return rc;
 err_init_bus:
 	venus_hfi_deinit_bus(device);

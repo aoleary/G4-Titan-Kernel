@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -53,7 +53,7 @@ int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 		case CAM_VDIG:
 			for (j = 0; j < num_vreg; j++) {
 				if (!strcmp(cam_vreg[j].reg_name, "cam_vdig")) {
-					CDBG("%s:%d i %d j %d cam_vdig\n",
+					pr_err("%s:%d i %d j %d cam_vdig\n",
 						__func__, __LINE__, i, j);
 					power_setting[i].seq_val = j;
 					if (VALIDATE_VOLTAGE(
@@ -72,7 +72,7 @@ int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 		case CAM_VIO:
 			for (j = 0; j < num_vreg; j++) {
 				if (!strcmp(cam_vreg[j].reg_name, "cam_vio")) {
-					CDBG("%s:%d i %d j %d cam_vio\n",
+					pr_err("%s:%d i %d j %d cam_vio\n",
 						__func__, __LINE__, i, j);
 					power_setting[i].seq_val = j;
 					if (VALIDATE_VOLTAGE(
@@ -91,7 +91,7 @@ int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 		case CAM_VANA:
 			for (j = 0; j < num_vreg; j++) {
 				if (!strcmp(cam_vreg[j].reg_name, "cam_vana")) {
-					CDBG("%s:%d i %d j %d cam_vana\n",
+					pr_err("%s:%d i %d j %d cam_vana\n",
 						__func__, __LINE__, i, j);
 					power_setting[i].seq_val = j;
 					if (VALIDATE_VOLTAGE(
@@ -110,7 +110,7 @@ int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 		case CAM_VAF:
 			for (j = 0; j < num_vreg; j++) {
 				if (!strcmp(cam_vreg[j].reg_name, "cam_vaf")) {
-					CDBG("%s:%d i %d j %d cam_vaf\n",
+					pr_err("%s:%d i %d j %d cam_vaf\n",
 						__func__, __LINE__, i, j);
 					power_setting[i].seq_val = j;
 					if (VALIDATE_VOLTAGE(
@@ -130,7 +130,7 @@ int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 			for (j = 0; j < num_vreg; j++) {
 				if (!strcmp(cam_vreg[j].reg_name,
 					"cam_v_custom1")) {
-					CDBG("%s:%d i %d j %d cam_vcustom1\n",
+					pr_err("%s:%d i %d j %d cam_vcustom1\n",
 						__func__, __LINE__, i, j);
 					power_setting[i].seq_val = j;
 					if (VALIDATE_VOLTAGE(
@@ -150,7 +150,7 @@ int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 			for (j = 0; j < num_vreg; j++) {
 				if (!strcmp(cam_vreg[j].reg_name,
 					"cam_v_custom2")) {
-					CDBG("%s:%d i %d j %d cam_vcustom2\n",
+					pr_err("%s:%d i %d j %d cam_vcustom2\n",
 						__func__, __LINE__, i, j);
 					power_setting[i].seq_val = j;
 					if (VALIDATE_VOLTAGE(
@@ -166,66 +166,6 @@ int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 			}
 			break;
 
-/* LGE_CHANGE_S, caemra bringup */
-		case CAM_OISVDD:
-			for (j = 0; j < num_vreg; j++) {
-				if (!strcmp(cam_vreg[j].reg_name, "cam_oisvdd")) {
-					pr_err("%s:%d i %d j %d cam_oisvdd\n",
-						__func__, __LINE__, i, j);
-					power_setting[i].seq_val = j;
-					break;
-				}
-			}
-			break;
-		case CAM_OISDVDD:
-			for (j = 0; j < num_vreg; j++) {
-				if (!strcmp(cam_vreg[j].reg_name, "cam_oisdvdd")) {
-					pr_err("%s:%d i %d j %d cam_oisdvdd\n",
-						__func__, __LINE__, i, j);
-					power_setting[i].seq_val = j;
-					break;
-				}
-			}
-			break;
-/* LGE_CHANGE_E, camera bringup */
-/* LGE_CHANGE_S, mh1 bringup 2015-05-21 */
-		case MH1_VIO:
-			pr_err("%s:%d msm_camera_fill_vreg_params for mh1_vio\n",
-						__func__, __LINE__);
-			for (j = 0; j < num_vreg; j++) {
-				if (!strcmp(cam_vreg[j].reg_name, "mh1_vio")) {
-					pr_err("%s:%d i %d j %d mh1_vio\n",
-						__func__, __LINE__, i, j);
-					power_setting[i].seq_val = j;
-					break;
-				}
-			}
-			break;
-		case MH1_VDDE12:
-			pr_err("%s:%d msm_camera_fill_vreg_params for mh1_vdde12\n",
-						__func__, __LINE__);
-			for (j = 0; j < num_vreg; j++) {
-				if (!strcmp(cam_vreg[j].reg_name, "mh1_vdde12")) {
-					pr_err("%s:%d i %d j %d mh1_vdde12\n",
-						__func__, __LINE__, i, j);
-					power_setting[i].seq_val = j;
-					break;
-				}
-			}
-			break;
-		case GYRO_VDD:
-			pr_err("%s:%d msm_camera_fill_vreg_params for gyro_vdd\n",
-						__func__, __LINE__);
-			for (j = 0; j < num_vreg; j++) {
-				if (!strcmp(cam_vreg[j].reg_name, "gyro_vdd")) {
-					pr_err("%s:%d i %d j %d mh1_vdde12\n",
-						__func__, __LINE__, i, j);
-					power_setting[i].seq_val = j;
-					break;
-				}
-			}
-			break;
-/* LGE_CHANGE_E, mh1 bringup 2015-05-21 */
 		default:
 			pr_err("%s:%d invalid seq_val %d\n", __func__,
 				__LINE__, power_setting[i].seq_val);
@@ -288,54 +228,6 @@ int msm_sensor_get_sub_module_index(struct device_node *of_node,
 		src_node = NULL;
 	}
 
-	src_node = of_parse_phandle(of_node, "qcom,proxy-src", 0);
-	if (!src_node) {
-		CDBG("%s:%d src_node NULL\n", __func__, __LINE__);
-	} else {
-		rc = of_property_read_u32(src_node, "cell-index", &val);
-		CDBG("%s qcom,proxy cell index %d, rc %d\n", __func__,
-			val, rc);
-		if (rc < 0) {
-			pr_err("%s failed %d\n", __func__, __LINE__);
-			goto ERROR;
-		}
-		sensor_info->subdev_id[SUB_MODULE_PROXY] = val;
-		of_node_put(src_node);
-		src_node = NULL;
-	}
-
-	src_node = of_parse_phandle(of_node, "qcom,tcs-src", 0);
-	if (!src_node) {
-		pr_err("%s:%d src_node NULL\n", __func__, __LINE__);
-	} else {
-		rc = of_property_read_u32(src_node, "cell-index", &val);
-		pr_err("%s qcom,tcs cell index %d, rc %d\n", __func__,
-			val, rc);
-		if (rc < 0) {
-			pr_err("%s failed %d\n", __func__, __LINE__);
-			goto ERROR;
-		}
-		sensor_info->subdev_id[SUB_MODULE_TCS] = val;
-		of_node_put(src_node);
-		src_node = NULL;
-	}
-/* LGE_CHANGE_S, mh1 bringup 2015-05-21 */
-	src_node = of_parse_phandle(of_node, "qcom,mh1-src", 0);
-	if (!src_node) {
-		pr_err("%s:%d src_node NULL\n", __func__, __LINE__);
-	} else {
-		rc = of_property_read_u32(src_node, "cell-index", &val);
-		pr_err("%s qcom,mh1 cell index %d, rc %d\n", __func__,
-			val, rc);
-		if (rc < 0) {
-			pr_err("%s failed %d\n", __func__, __LINE__);
-			goto ERROR;
-		}
-		sensor_info->subdev_id[SUB_MODULE_MH1] = val;
-		of_node_put(src_node);
-		src_node = NULL;
-	}
-/* LGE_CHANGE_E, mh1 bringup 2015-05-21 */
 	src_node = of_parse_phandle(of_node, "qcom,eeprom-src", 0);
 	if (!src_node) {
 		CDBG("%s:%d eeprom src_node NULL\n", __func__, __LINE__);
@@ -351,24 +243,6 @@ int msm_sensor_get_sub_module_index(struct device_node *of_node,
 		of_node_put(src_node);
 		src_node = NULL;
 	}
-
-#if 0//defined(CONFIG_MSM_OTP)
-	src_node = of_parse_phandle(of_node, "qcom,otp-src", 0);
-	if (!src_node) {
-		CDBG("%s:%d otp src_node NULL\n", __func__, __LINE__);
-	} else {
-		rc = of_property_read_u32(src_node, "cell-index", &val);
-		CDBG("%s qcom,otp cell index %d, rc %d\n", __func__,
-			val, rc);
-		if (rc < 0) {
-			pr_err("%s failed %d\n", __func__, __LINE__);
-			goto ERROR;
-		}
-		sensor_info->subdev_id[SUB_MODULE_OTP] = val;
-		of_node_put(src_node);
-		src_node = NULL;
-	}
-#endif
 
 	rc = of_property_read_u32(of_node, "qcom,eeprom-sd-index", &val);
 	if (rc != -EINVAL) {
@@ -667,18 +541,6 @@ int msm_camera_get_dt_power_setting_data(struct device_node *of_node,
 				ps[i].seq_val = SENSOR_GPIO_VAF;
 			else if (!strcmp(seq_name, "sensor_gpio_vio"))
 				ps[i].seq_val = SENSOR_GPIO_VIO;
-			else if (!strcmp(seq_name, "sensor_gpio_ldaf"))
-				ps[i].seq_val = SENSOR_GPIO_LDAF_EN;
-			else if (!strcmp(seq_name, "sensor_gpio_ois_reset"))
-				ps[i].seq_val = SENSOR_GPIO_OIS_RESET;
-/* LGE_CHANGE_S, mh1 bringup 2015-05-21 */
-			else if (!strcmp(seq_name, "sensor_gpio_mh1_reset"))
-				ps[i].seq_val = SENSOR_GPIO_MH1_RESET;
-			else if (!strcmp(seq_name, "sensor_gpio_mh1_ldo_en"))
-				ps[i].seq_val = SENSOR_GPIO_MH1_LDO_EN;
-			else if (!strcmp(seq_name, "sensor_gpio_mh1_dcdc_en"))
-				ps[i].seq_val = SENSOR_GPIO_MH1_DCDC_EN;
-/* LGE_CHANGE_E, mh1 bringup 2015-05-21 */
 			else if (!strcmp(seq_name, "sensor_gpio_custom1"))
 				ps[i].seq_val = SENSOR_GPIO_CUSTOM1;
 			else if (!strcmp(seq_name, "sensor_gpio_custom2"))
@@ -787,9 +649,6 @@ ERROR2:
 	kfree(array);
 ERROR1:
 	kfree(ps);
-/* LGE_CHANGE_S, EEPROM bring-up*/
-	power_info->power_setting = NULL;
-/* LGE_CHANGE_E, EEPROM bring-up*/
 	power_setting_size = 0;
 	return rc;
 }
@@ -1184,110 +1043,6 @@ int msm_camera_init_gpio_pin_tbl(struct device_node *of_node,
 	} else
 		rc = 0;
 
-	rc = of_property_read_u32(of_node, "qcom,gpio-ldaf-en", &val);
-		if (rc != -EINVAL) {
-			if (rc < 0) {
-				pr_err("%s:%d read qcom,gpio-ldaf-en failed rc %d\n",
-					__func__, __LINE__, rc);
-				goto ERROR;
-			} else if (val >= gpio_array_size) {
-				pr_err("%s:%d qcom,gpio-ldaf-en invalid %d\n",
-					__func__, __LINE__, val);
-				rc = -EINVAL;
-				goto ERROR;
-			}
-			gconf->gpio_num_info->gpio_num[SENSOR_GPIO_LDAF_EN] =
-				gpio_array[val];
-			gconf->gpio_num_info->valid[SENSOR_GPIO_LDAF_EN] = 1;
-			CDBG("%s qcom,gpio-ldaf-en %d\n", __func__,
-				gconf->gpio_num_info->gpio_num[SENSOR_GPIO_LDAF_EN]);
-		} else {
-			rc = 0;
-		}
-//LGE imx234 bringup
-		rc = of_property_read_u32(of_node, "qcom,gpio-ois-reset", &val);
-			if (rc != -EINVAL) {
-				if (rc < 0) {
-					pr_err("%s:%d read qcom,gpio-ois-reset failed rc %d\n",
-						__func__, __LINE__, rc);
-					goto ERROR;
-				} else if (val >= gpio_array_size) {
-					pr_err("%s:%d qcom,gpio-ois-reset invalid %d\n",
-						__func__, __LINE__, val);
-					rc = -EINVAL;
-					goto ERROR;
-				}
-				gconf->gpio_num_info->gpio_num[SENSOR_GPIO_OIS_RESET] =
-					gpio_array[val];
-				gconf->gpio_num_info->valid[SENSOR_GPIO_OIS_RESET] = 1;
-				CDBG("%s qcom,gpio-ois-reset %d\n", __func__,
-					gconf->gpio_num_info->gpio_num[SENSOR_GPIO_OIS_RESET]);
-			} else {
-				rc = 0;
-			}
-/* LGE_CHANGE_S, mh1 bringup 2015-05-21 */
-	rc = of_property_read_u32(of_node, "qcom,gpio-mh1-reset", &val);
-	if (rc != -EINVAL) {
-		if (rc < 0) {
-			pr_err("%s:%d read qcom,gpio-mh1-reset failed rc %d\n",
-				__func__, __LINE__, rc);
-			goto ERROR;
-		} else if (val >= gpio_array_size) {
-			pr_err("%s:%d qcom,gpio-mh1-reset invalid %d\n",
-				__func__, __LINE__, val);
-			rc = -EINVAL;
-			goto ERROR;
-		}
-		gconf->gpio_num_info->gpio_num[SENSOR_GPIO_MH1_RESET] =
-			gpio_array[val];
-		gconf->gpio_num_info->valid[SENSOR_GPIO_MH1_RESET] = 1;
-		CDBG("%s qcom,gpio-mh1-reset %d\n", __func__,
-			gconf->gpio_num_info->gpio_num[SENSOR_GPIO_MH1_RESET]);
-	} else {
-		rc = 0;
-	}
-
-	rc = of_property_read_u32(of_node, "qcom,gpio-mh1-ldo-en", &val);
-	if (rc != -EINVAL) {
-		if (rc < 0) {
-			pr_err("%s:%d read qcom,gpio-mh1-ldo-en failed rc %d\n",
-				__func__, __LINE__, rc);
-			goto ERROR;
-		} else if (val >= gpio_array_size) {
-			pr_err("%s:%d qcom,gpio-mh1-ldo-en invalid %d\n",
-				__func__, __LINE__, val);
-			rc = -EINVAL;
-			goto ERROR;
-		}
-		gconf->gpio_num_info->gpio_num[SENSOR_GPIO_MH1_LDO_EN] =
-			gpio_array[val];
-		gconf->gpio_num_info->valid[SENSOR_GPIO_MH1_LDO_EN] = 1;
-		CDBG("%s qcom,gpio-mh1-ldo-en %d\n", __func__,
-			gconf->gpio_num_info->gpio_num[SENSOR_GPIO_MH1_LDO_EN]);
-	} else {
-		rc = 0;
-	}
-	rc = of_property_read_u32(of_node, "qcom,gpio-mh1-dcdc-en", &val);
-	if (rc != -EINVAL) {
-		if (rc < 0) {
-			pr_err("%s:%d read qcom,gpio-mh1-dcdc-en failed rc %d\n",
-				__func__, __LINE__, rc);
-			goto ERROR;
-		} else if (val >= gpio_array_size) {
-			pr_err("%s:%d qcom,gpio-mh1-dcdc-en invalid %d %d\n",
-				__func__, __LINE__, val, gpio_array_size);
-			rc = -EINVAL;
-			goto ERROR;
-		}
-		gconf->gpio_num_info->gpio_num[SENSOR_GPIO_MH1_DCDC_EN] =
-			gpio_array[val];
-		gconf->gpio_num_info->valid[SENSOR_GPIO_MH1_DCDC_EN] = 1;
-		CDBG("%s qcom,gpio-mh1-dcdc-en %d\n", __func__,
-			gconf->gpio_num_info->gpio_num[SENSOR_GPIO_MH1_DCDC_EN]);
-	} else {
-		rc = 0;
-	}
-/* LGE_CHANGE_E, mh1 bringup 2015-05-21 */
 	rc = of_property_read_u32(of_node, "qcom,gpio-custom1", &val);
 	if (rc != -EINVAL) {
 		if (rc < 0) {

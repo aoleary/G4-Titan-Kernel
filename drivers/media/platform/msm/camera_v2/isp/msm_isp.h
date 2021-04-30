@@ -121,7 +121,7 @@ struct msm_vfe_irq_ops {
 struct msm_vfe_axi_ops {
 	void (*reload_wm)(struct vfe_device *vfe_dev, void __iomem *vfe_base,
 		uint32_t reload_mask);
-	void (*enable_wm)(void __iomem *vfe_base,
+	void (*enable_wm) (struct vfe_device *vfe_dev,
 		uint8_t wm_idx, uint8_t enable);
 	int32_t (*cfg_io_format) (struct vfe_device *vfe_dev,
 		enum msm_vfe_axi_stream_src stream_src,
@@ -418,7 +418,6 @@ struct msm_vfe_axi_shared_data {
 	struct msm_vfe_src_info src_info[VFE_SRC_MAX];
 	uint16_t stream_handle_cnt;
 	uint32_t event_mask;
-	uint8_t enable_frameid_recovery; /*QCT_PATCH, disable the vfe recovery when frame_id mismatch, 2015-07-14, freeso.kim@lge.com*/
 };
 
 struct msm_vfe_stats_hardware_info {
@@ -490,7 +489,7 @@ struct msm_vfe_error_info {
 	uint32_t error_mask1;
 	uint32_t violation_status;
 	uint32_t camif_status;
-	uint8_t stream_framedrop_count[VFE_AXI_SRC_MAX];
+	uint8_t stream_framedrop_count[MAX_NUM_STREAM];
 	uint8_t stats_framedrop_count[MSM_ISP_STATS_MAX];
 	uint32_t info_dump_frame_count;
 	uint32_t error_count;
@@ -612,7 +611,6 @@ struct vfe_device {
 	spinlock_t tasklet_lock;
 	spinlock_t shared_data_lock;
 	spinlock_t reg_update_lock;
-        spinlock_t  shared_cfg_reg_lock;  //LGE_CHANGE, 20150609, Change spin_lock for watchodog case using shard_data_lock, changhwan.kang.kang
 	struct list_head tasklet_q;
 	struct tasklet_struct vfe_tasklet;
 	struct msm_vfe_tasklet_queue_cmd
@@ -641,6 +639,7 @@ struct vfe_device {
 	uint8_t reg_updated;
 	struct dual_vfe_resource *dual_vfe_res;
 	uint32_t is_split;
+	unsigned long page_fault_addr;
 };
 
 #endif

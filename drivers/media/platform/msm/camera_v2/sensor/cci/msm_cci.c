@@ -53,11 +53,16 @@ static void msm_cci_set_clk_param(struct cci_device *cci_dev,
 	struct msm_cci_clk_params_t *clk_params = NULL;
 	enum cci_i2c_master_t master = c_ctrl->cci_info->cci_i2c_master;
 	enum i2c_freq_mode_t i2c_freq_mode = c_ctrl->cci_info->i2c_freq_mode;
-	/*LGE_CHANGE, changed into FAST Mode */
-	i2c_freq_mode = 1; //WAR setting to use I2C speed as 400Khz
+
+	if ((i2c_freq_mode >= I2C_MAX_MODES) || (i2c_freq_mode < 0)) {
+		pr_err("%s:%d invalid i2c_freq_mode %d\n",
+			__func__, __LINE__, i2c_freq_mode);
+		return;
+	}
 
 	if (cci_dev->master_clk_init[master])
 		return;
+
 	clk_params = &cci_dev->cci_clk_params[i2c_freq_mode];
 
 	if (MASTER_0 == master) {
@@ -354,10 +359,18 @@ static int32_t msm_cci_i2c_read(struct v4l2_subdev *sd,
 	enum cci_i2c_queue_t queue = QUEUE_1;
 	struct cci_device *cci_dev = NULL;
 	struct msm_camera_cci_i2c_read_cfg *read_cfg = NULL;
+
 	CDBG("%s line %d\n", __func__, __LINE__);
 	cci_dev = v4l2_get_subdevdata(sd);
 	master = c_ctrl->cci_info->cci_i2c_master;
 	read_cfg = &c_ctrl->cfg.cci_i2c_read_cfg;
+
+	if (master >= MASTER_MAX || master < 0) {
+		pr_err("%s:%d Invalid I2C master %d\n",
+			__func__, __LINE__, master);
+		return -EINVAL;
+	}
+
 	mutex_lock(&cci_dev->cci_master_info[master].mutex);
 
 	/*
@@ -471,8 +484,6 @@ static int32_t msm_cci_i2c_read(struct v4l2_subdev *sd,
 			__LINE__, read_words, exp_words);
 		memset(read_cfg->data, 0, read_cfg->num_byte);
 		rc = -EINVAL;
-		/* LGE: QMC patch for cci error */
-		msm_cci_flush_queue(cci_dev, master);
 		goto ERROR;
 	}
 	index = 0;
@@ -753,6 +764,13 @@ static struct msm_cam_clk_info *msm_cci_get_clk(struct cci_device *cci_dev,
 	struct msm_cci_clk_params_t *clk_params = NULL;
 	enum i2c_freq_mode_t i2c_freq_mode = c_ctrl->cci_info->i2c_freq_mode;
 	struct device_node *of_node = cci_dev->pdev->dev.of_node;
+
+	if ((i2c_freq_mode >= I2C_MAX_MODES) || (i2c_freq_mode < 0)) {
+		pr_err("%s:%d invalid i2c_freq_mode %d\n",
+			__func__, __LINE__, i2c_freq_mode);
+		return NULL;
+	}
+
 	clk_params = &cci_dev->cci_clk_params[i2c_freq_mode];
 	cci_clk_src = clk_params->cci_clk_src;
 
@@ -875,7 +893,7 @@ static int32_t msm_cci_init(struct v4l2_subdev *sd,
 	enable_irq(cci_dev->irq->start);
 	cci_dev->hw_version = msm_camera_io_r_mb(cci_dev->base +
 		CCI_HW_VERSION_ADDR);
-	pr_info("%s:%d: hw_version = 0x%x\n", __func__, __LINE__,
+	pr_debug("%s:%d: hw_version = 0x%x\n", __func__, __LINE__,
 		cci_dev->hw_version);
 	cci_dev->payload_size =
 			MSM_CCI_WRITE_DATA_PAYLOAD_SIZE_10;
@@ -982,52 +1000,27 @@ static int32_t msm_cci_config(struct v4l2_subdev *sd,
 	struct msm_camera_cci_ctrl *cci_ctrl)
 {
 	int32_t rc = 0;
-/*QCT_PATCH S, add the retrial code only in msm_cci_config() function , 2013-12-09, yousung.kang@lge.com */
-#if 1
-	int32_t trialCnt = 3;
-#endif
-/*QCT_PATCH E, add the retrial code only in msm_cci_config() function , 2013-12-09, yousung.kang@lge.com */
-
 	CDBG("%s line %d cmd %d\n", __func__, __LINE__,
 		cci_ctrl->cmd);
 	switch (cci_ctrl->cmd) {
 	case MSM_CCI_INIT:
 		rc = msm_cci_init(sd, cci_ctrl);
-/* LGE_CHANGE_S, jaehan.jeong, 2014.11.25, To see if cci is acquired*/
-		if(!rc)
-		   cci_ctrl->cci_info->cci_acquired = 1;
-/* LGE_CHANGE_E, jaehan.jeong, 2014.11.25, To see if cci is acquired*/
 		break;
 	case MSM_CCI_RELEASE:
-/* LGE_CHANGE_S, jaehan.jeong, 2014.11.25, To see if cci is acquired*/
-		if(cci_ctrl->cci_info) {
-			if(cci_ctrl->cci_info->cci_acquired)
-			  rc = msm_cci_release(sd);
-			cci_ctrl->cci_info->cci_acquired = 0;
-		}
-/* LGE_CHANGE_E, jaehan.jeong, 2014.11.25, To see if cci is acquired*/
+		rc = msm_cci_release(sd);
 		break;
 	case MSM_CCI_I2C_READ:
 		rc = msm_cci_i2c_read_bytes(sd, cci_ctrl);
 		break;
 	case MSM_CCI_I2C_WRITE:
 	case MSM_CCI_I2C_WRITE_SEQ:
-/*QCT_PATCH S, add the retrial code only in msm_cci_config() function , 2013-12-09, yousung.kang@lge.com */
-#if 1
-	    do{
-			   rc = msm_cci_i2c_write(sd, cci_ctrl);
-			   if(rc < 0)
-					pr_err("%s: line %d trialCnt = %d \n", __func__, __LINE__, trialCnt);
-			   trialCnt--;
-		   }while(rc < 0 && trialCnt > 0);
-#else
 		rc = msm_cci_i2c_write(sd, cci_ctrl);
-#endif
-/*QCT_PATCH E, add the retrial code only in msm_cci_config() function , 2013-12-09, yousung.kang@lge.com */
 		break;
 	case MSM_CCI_GPIO_WRITE:
 		break;
 	default:
+		pr_err_ratelimited("%s:%d unsupported compat type 0x%x\n",
+				__func__, __LINE__, cci_ctrl->cmd);
 		rc = -ENOIOCTLCMD;
 	}
 	CDBG("%s line %d rc %d\n", __func__, __LINE__, rc);
@@ -1118,12 +1111,13 @@ static long msm_cci_subdev_ioctl(struct v4l2_subdev *sd,
 		break;
 	case MSM_SD_SHUTDOWN: {
 		struct msm_camera_cci_ctrl ctrl_cmd;
-		ctrl_cmd.cci_info = NULL;	//LGE_CHANGE, jaehan.jeong, 2014.11.25, To see if cci is acquired
 		ctrl_cmd.cmd = MSM_CCI_RELEASE;
 		rc = msm_cci_config(sd, &ctrl_cmd);
 		break;
 	}
 	default:
+		pr_err_ratelimited("%s:%d unsupported compat type 0x%x\n",
+				__func__, __LINE__, cmd);
 		rc = -ENOIOCTLCMD;
 	}
 	CDBG("%s line %d rc %d\n", __func__, __LINE__, rc);
@@ -1408,7 +1402,7 @@ static int msm_cci_get_clk_info(struct cci_device *cci_dev,
 			rc = of_property_read_string_index(of_node,
 				"clock-names", j,
 				&(cci_clk_info[i][j].clk_name));
-			CDBG("%s: clock-names[%d][%d] = %s\n", __func__,
+			pr_err("%s: clock-names[%d][%d] = %s\n", __func__,
 				i, j, cci_clk_info[i][j].clk_name);
 			if (rc < 0) {
 				pr_err("%s:%d, failed\n", __func__, __LINE__);
@@ -1418,7 +1412,7 @@ static int msm_cci_get_clk_info(struct cci_device *cci_dev,
 			cci_clk_info[i][j].clk_rate =
 				(be32_to_cpu(p[index]) == 0) ?
 					(long)-1 : be32_to_cpu(p[index]);
-			CDBG("%s: clk_rate[%d][%d] = %ld\n", __func__, i, j,
+			pr_err("%s: clk_rate[%d][%d] = %ld\n", __func__, i, j,
 				cci_clk_info[i][j].clk_rate);
 			index++;
 		}

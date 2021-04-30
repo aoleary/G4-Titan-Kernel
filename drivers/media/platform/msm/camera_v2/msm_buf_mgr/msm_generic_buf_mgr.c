@@ -102,29 +102,14 @@ static int32_t msm_buf_mngr_buf_done(struct msm_buf_mngr_device *buf_mngr_dev,
 		if ((bufs->session_id == buf_info->session_id) &&
 			(bufs->stream_id == buf_info->stream_id) &&
 			(bufs->vb2_buf->v4l2_buf.index == buf_info->index)) {
-/* LGE_CHANGE_S, Check if vb2_buf is in the queued list */
-#if 0 //QCT original
 			bufs->vb2_buf->v4l2_buf.sequence  = buf_info->frame_id;
+			bufs->vb2_buf->v4l2_buf.flags |= buf_info->flags;
 			bufs->vb2_buf->v4l2_buf.timestamp = buf_info->timestamp;
 			bufs->vb2_buf->v4l2_buf.reserved = buf_info->reserved;
 			ret = buf_mngr_dev->vb2_ops.buf_done
 					(bufs->vb2_buf,
 						buf_info->session_id,
 						buf_info->stream_id);
-#else
-			ret = buf_mngr_dev->vb2_ops.buf_done
-					(bufs->vb2_buf,
-						buf_info->session_id,
-						buf_info->stream_id);
-			if(!ret) {
-				bufs->vb2_buf->v4l2_buf.sequence  = buf_info->frame_id;
-				bufs->vb2_buf->v4l2_buf.timestamp = buf_info->timestamp;
-				bufs->vb2_buf->v4l2_buf.reserved = buf_info->reserved;
-			} else {
-				pr_info("%s: failed to buf_done idx=%d state(%d)\n",__func__,bufs->vb2_buf->v4l2_buf.index, bufs->vb2_buf->state);
-			}
-#endif
-/* LGE_CHANGE_E, Check if vb2_buf is in the queued list */
 			list_del_init(&bufs->entry);
 			kfree(bufs);
 			break;
@@ -443,6 +428,7 @@ static long msm_buf_mngr_subdev_ioctl(struct v4l2_subdev *sd,
 		rc = msm_buf_mngr_handle_cont_cmd(buf_mngr_dev, argp);
 		break;
 	default:
+		pr_err_ratelimited("unsupported cmd type 0x%x\n", cmd);
 		return -ENOIOCTLCMD;
 	}
 	return rc;
@@ -476,7 +462,7 @@ static long msm_bmgr_subdev_fops_compat_ioctl(struct file *file,
 		cmd = VIDIOC_MSM_BUF_MNGR_CONT_CMD;
 		break;
 	default:
-		pr_debug("%s : unsupported compat type", __func__);
+		pr_err_ratelimited("unsupported compat type 0x%x\n", cmd);
 		return -ENOIOCTLCMD;
 	}
 
@@ -503,7 +489,7 @@ static long msm_bmgr_subdev_fops_compat_ioctl(struct file *file,
 
 		rc = v4l2_subdev_call(sd, core, ioctl, cmd, &buf_info);
 		if (rc < 0) {
-			pr_debug("%s : Subdev cmd %d fail", __func__, cmd);
+			pr_err_ratelimited("Subdev cmd 0x%x fail\n", cmd);
 			return rc;
 		}
 
@@ -532,13 +518,13 @@ static long msm_bmgr_subdev_fops_compat_ioctl(struct file *file,
 			return -EFAULT;
 		rc = v4l2_subdev_call(sd, core, ioctl, cmd, &cont_cmd);
 		if (rc < 0) {
-			pr_debug("%s : Subdev cmd %d fail", __func__, cmd);
+			pr_err_ratelimited("Subdev cmd 0x%x fail\n", cmd);
 			return rc;
 		}
 		}
 		break;
 	default:
-		pr_debug("%s : unsupported compat type", __func__);
+		pr_err_ratelimited("unsupported compat type 0x%x\n", cmd);
 		return -ENOIOCTLCMD;
 		break;
 	}

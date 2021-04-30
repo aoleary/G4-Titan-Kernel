@@ -26,18 +26,6 @@
 
 #define	MSM_OIS_MAX_VREGS (10)
 
-#define OIS_SUCCESS 0
-#define OIS_FAIL    -1
-#define OIS_INIT_OLD_MODULE		1
-#define OIS_INIT_NOT_SUPPORTED  -2
-#define OIS_INIT_CHECKSUM_ERROR -3
-#define OIS_INIT_EEPROM_ERROR   -4
-#define OIS_INIT_I2C_ERROR      -5
-#define OIS_INIT_TIMEOUT		-6
-#define OIS_INIT_LOAD_BIN_ERROR -7
-#define OIS_INIT_NOMEM			-8
-#define OIS_INIT_GYRO_ADJ_FAIL	 2
-#define OIS_INIT_SRV_GAIN_FAIL	 4
 struct msm_ois_ctrl_t;
 
 enum msm_ois_state_t {
@@ -45,31 +33,6 @@ enum msm_ois_state_t {
 	OIS_OPS_ACTIVE,
 	OIS_OPS_INACTIVE,
 	OIS_DISABLE_STATE,
-};
-enum ois_mode_t {
-	OIS_MODE_PREVIEW_CAPTURE,
-	OIS_MODE_VIDEO,
-	OIS_MODE_CAPTURE,
-	OIS_MODE_CENTERING_ONLY,
-	OIS_MODE_CENTERING_OFF
-};
-struct msm_ois_func_tbl {
-	int32_t (*ini_set_ois)(struct msm_ois_ctrl_t *,
-		struct msm_ois_set_info_t *);
-	int32_t (*enable_ois)(struct msm_ois_ctrl_t *,
-		struct msm_ois_set_info_t *);
-	int32_t (*disable_ois)(struct msm_ois_ctrl_t *,
-		struct msm_ois_set_info_t *);
-	int32_t (*ois_move_lens)(struct msm_ois_ctrl_t *,
-		struct msm_ois_set_info_t *);
-	int32_t (*ois_mode)(struct msm_ois_ctrl_t *,
-		struct msm_ois_set_info_t *);
-	int32_t (*ois_stat)(struct msm_ois_ctrl_t *,
-		struct msm_ois_set_info_t *);
-	int ois_cur_mode;
-};
-struct msm_ois {
-	struct msm_ois_func_tbl func_tbl;
 };
 
 struct msm_ois_vreg {
@@ -83,11 +46,9 @@ struct msm_ois_ctrl_t {
 	struct platform_driver *pdriver;
 	struct platform_device *pdev;
 	struct msm_camera_i2c_client i2c_client;
-	struct msm_camera_i2c_client i2c_eeprom_client;
 	enum msm_camera_device_type_t ois_device_type;
 	struct msm_sd_subdev msm_sd;
 	struct mutex *ois_mutex;
-	struct msm_ois_func_tbl *func_tbl;
 	enum msm_camera_i2c_data_type i2c_data_type;
 	struct v4l2_subdev sdev;
 	struct v4l2_subdev_ops *ois_v4l2_subdev_ops;
@@ -97,14 +58,6 @@ struct msm_ois_ctrl_t {
 	uint32_t subdev_id;
 	enum msm_ois_state_t ois_state;
 	struct msm_ois_vreg vreg_cfg;
-	uint16_t sid_ois;
 };
 
-#define MSM_OIS_DEBUG
-#undef CDBG
-#ifdef MSM_OIS_DEBUG
-#define CDBG(fmt, args...) pr_err(fmt, ##args)
-#else
-#define CDBG(fmt, args...) do { } while (0)
-#endif
 #endif

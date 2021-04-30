@@ -430,8 +430,7 @@ void msm_jpeg_hw_reset_dma(void *base, int size)
 	return;
 }
 
-/* LGE_CHANGE, camera stability task, Changed to inline function for RTB logging */
-inline uint32_t msm_jpeg_hw_read(struct msm_jpeg_hw_cmd *hw_cmd_p,
+uint32_t msm_jpeg_hw_read(struct msm_jpeg_hw_cmd *hw_cmd_p,
 	 void *jpeg_region_base)
 {
 	uint32_t *paddr;
@@ -444,8 +443,8 @@ inline uint32_t msm_jpeg_hw_read(struct msm_jpeg_hw_cmd *hw_cmd_p,
 
 	return data;
 }
-/* LGE_CHANGE, camera stability task, Changed to inline function for RTB logging */
-inline void msm_jpeg_hw_write(struct msm_jpeg_hw_cmd *hw_cmd_p,
+
+void msm_jpeg_hw_write(struct msm_jpeg_hw_cmd *hw_cmd_p,
 	void *jpeg_region_base)
 {
 	uint32_t *paddr;

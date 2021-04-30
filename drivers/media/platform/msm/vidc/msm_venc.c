@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -2356,34 +2356,12 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	}
 	case V4L2_CID_MPEG_VIDC_VIDEO_INTRA_REFRESH_MODE: {
 		struct v4l2_ctrl *air_mbs, *air_ref, *cir_mbs;
-		bool is_cont_intra_supported = false;
-
 		air_mbs = TRY_GET_CTRL(V4L2_CID_MPEG_VIDC_VIDEO_AIR_MBS);
 		air_ref = TRY_GET_CTRL(V4L2_CID_MPEG_VIDC_VIDEO_AIR_REF);
 		cir_mbs = TRY_GET_CTRL(V4L2_CID_MPEG_VIDC_VIDEO_CIR_MBS);
 
-		is_cont_intra_supported =
-		(inst->fmts[CAPTURE_PORT]->fourcc == V4L2_PIX_FMT_H264) ||
-		(inst->fmts[CAPTURE_PORT]->fourcc == V4L2_PIX_FMT_HEVC);
-
-		if (is_cont_intra_supported) {
-			if (air_mbs || air_ref || cir_mbs)
-				enable.enable = true;
-			else
-				enable.enable = false;
-
-			rc = call_hfi_op(hdev, session_set_property,
-				(void *)inst->session,
-				HAL_PARAM_VENC_CONSTRAINED_INTRA_PRED, &enable);
-			if (rc) {
-				dprintk(VIDC_ERR,
-					"Failed to set constrained intra\n");
-				rc = -EINVAL;
-				break;
-			}
-		}
-
-		property_id = HAL_PARAM_VENC_INTRA_REFRESH;
+		property_id =
+			HAL_PARAM_VENC_INTRA_REFRESH;
 
 		intra_refresh.mode = ctrl->val;
 		intra_refresh.air_mbs = air_mbs->val;
@@ -3202,6 +3180,7 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 	} else if (f->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
 		struct hal_uncompressed_format_select hal_fmt = {0};
 		struct hal_frame_size frame_sz;
+		struct hal_video_signal_info signal_info = {0};
 
 		inst->prop.width[OUTPUT_PORT] = f->fmt.pix_mp.width;
 		inst->prop.height[OUTPUT_PORT] = f->fmt.pix_mp.height;
@@ -3213,6 +3192,7 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 			goto exit;
 		}
 
+		/* Configure frame dimensions */
 		frame_sz.buffer_type = HAL_BUFFER_INPUT;
 		frame_sz.width = inst->prop.width[OUTPUT_PORT];
 		frame_sz.height = inst->prop.height[OUTPUT_PORT];
@@ -3235,6 +3215,7 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 			goto exit;
 		}
 
+		/* Configure frame color format */
 		fmt = msm_comm_get_pixel_fmt_fourcc(venc_formats,
 			ARRAY_SIZE(venc_formats), f->fmt.pix_mp.pixelformat,
 			OUTPUT_PORT);
@@ -3268,6 +3249,54 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 				"Failed to set input color format\n");
 			goto exit;
 		}
+
+		/* Configure frame color format characteristics */
+		if (f->fmt.pix_mp.colorspace) {
+			switch (f->fmt.pix_mp.colorspace) {
+				case V4L2_COLORSPACE_REC709:
+					signal_info.color_space =
+						HAL_VIDEO_COLOR_SPACE_709;
+					signal_info.clamped = true;
+					break;
+				case V4L2_COLORSPACE_BT878:
+					/* equiv to ITU-R BT.601 clamped */
+					signal_info.clamped = true;
+					/* fall thru */
+				case V4L2_COLORSPACE_470_SYSTEM_BG:
+					/* equiv to ITU-R BT.601 */
+					signal_info.color_space =
+						HAL_VIDEO_COLOR_SPACE_601;
+					break;
+				default:
+					dprintk(VIDC_ERR, "Colorspace %d not supported\n",
+							f->fmt.pix_mp.colorspace);
+					rc = -ENOTSUPP;
+					goto exit;
+			}
+
+			switch (f->fmt.pix_mp.pixelformat) {
+				case V4L2_PIX_FMT_NV12:
+				case V4L2_PIX_FMT_NV21:
+					rc = call_hfi_op(hdev, session_set_property,
+							inst->session,
+							HAL_PARAM_VENC_VIDEO_SIGNAL_INFO,
+							&signal_info);
+					if (rc) {
+						dprintk(VIDC_ERR,
+								"Failed to set the colorspace: %d\n",
+								rc);
+						goto exit;
+					}
+					break;
+				default:
+					dprintk(VIDC_ERR,
+							"Colorspace %d not supported for format %d\n",
+							f->fmt.pix_mp.colorspace,
+							f->fmt.pix_mp.pixelformat);
+					rc = -ENOTSUPP;
+					break;
+			}
+		}
 	}
 
 	if (!fmt) {
@@ -3299,9 +3328,8 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 		frame_sz.width = inst->prop.width[CAPTURE_PORT];
 		frame_sz.height = inst->prop.height[CAPTURE_PORT];
 		frame_sz.buffer_type = HAL_BUFFER_OUTPUT;
-		rc = call_hfi_op(hdev, session_set_property, (void *)
-				inst->session, HAL_PARAM_FRAME_SIZE,
-				&frame_sz);
+		rc = call_hfi_op(hdev, session_set_property, inst->session,
+				HAL_PARAM_FRAME_SIZE, &frame_sz);
 		if (rc) {
 			dprintk(VIDC_ERR,
 					"Failed to set OUTPUT framesize\n");
@@ -3663,11 +3691,8 @@ static struct v4l2_ctrl **get_super_cluster(struct msm_vidc_inst *inst,
 	struct v4l2_ctrl **cluster = kmalloc(sizeof(struct v4l2_ctrl *) *
 			NUM_CTRLS, GFP_KERNEL);
 
-	if (!size || !cluster || !inst) {
-		if (cluster)
-			kfree(cluster);
+	if (!size || !cluster || !inst)
 		return NULL;
-	}
 
 	for (c = 0; c < NUM_CTRLS; c++)
 		cluster[sz++] =  inst->ctrls[c];

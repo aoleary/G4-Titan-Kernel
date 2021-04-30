@@ -17,26 +17,10 @@
 #include "msm_camera_i2c_mux.h"
 #include <linux/regulator/rpm-smd-regulator.h>
 #include <linux/regulator/consumer.h>
-#include "./mh1/msm_mh1.h" /* LGE_CHANGE, fixed build error , 2016-1-27, soojong.jin@lge.com */
-#include <soc/qcom/lge/board_lge.h>	//to use lge_get_board_revno()
+#include <linux/qpnp/qpnp-haptic.h>
 
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
-/* LGE_CHANGE_S, mh1 bringup 2015-05-21 */
-#ifdef CONFIG_SPI_MH1
-static uint32_t gpio_sw_mh1_ap;
-
-static bool mh1_sensor_i2c = false;
-/* LGE_CHANGE_E, mh1 bringup 2015-05-21 */
-#endif
-
-/* LGE_CHANGE_S, LGE Preview tunning for lowlight , 2015-12-28, soojong.jin@lge.com */
-#if defined(CONFIG_LGE_CAM_PREVIEW_TUNE)
-#define CAM_PREVIEW_TUNE_ON 1
-#define CAM_PREVIEW_TUNE_OFF 0
-extern int pp_set_cam_preview_tune_status(int flag);
-#endif
-/* LGE_CHANGE_E, LGE Preview tunning for lowlight , 2015-12-28, soojong.jin@lge.com */
 
 static struct v4l2_file_operations msm_sensor_v4l2_subdev_fops;
 static void msm_sensor_adjust_mclk(struct msm_camera_power_ctrl_t *ctrl)
@@ -58,13 +42,6 @@ static void msm_sensor_adjust_mclk(struct msm_camera_power_ctrl_t *ctrl)
 
 	return;
 }
-
-#ifdef CONFIG_SPI_MH1
-bool msm_sensor_get_i2c_path(void){
-	CDBG("%s mh1_sensor_i2c : %d, line: %d\n", __func__, mh1_sensor_i2c, __LINE__);
-	return mh1_sensor_i2c;
-}
-#endif
 
 static int32_t msm_camera_get_power_settimgs_from_sensor_lib(
 	struct msm_camera_power_ctrl_t *power_info,
@@ -354,18 +331,7 @@ static int32_t msm_sensor_get_dt_data(struct device_node *of_node,
 		&sensordata->misc_regulator);
 	CDBG("%s qcom,misc_regulator %s, rc %d\n", __func__,
 		 sensordata->misc_regulator, ret);
-#ifdef CONFIG_SPI_MH1
-	//for i2c switch
-	//gpio_sw_mh1_ap = of_get_named_gpio_flags(of_node, "qcom,gpio_sw", 0, NULL);
-	
-	if ((!strcmp(sensordata->sensor_name, "imx234")) && ((lge_get_board_revno() == HW_REV_0) || (lge_get_board_revno() == HW_REV_A))){
-		gpio_sw_mh1_ap = of_get_named_gpio(of_node, "qcom,gpio_sw", 0);
-		pr_err("%s qcom,gpio_sw %d\n", __func__, gpio_sw_mh1_ap);
-		if (gpio_request(gpio_sw_mh1_ap, "mh1 i2c master en") != 0){
-			pr_err("%s failed to get gpio %d. \n", __func__, gpio_sw_mh1_ap);
-		}
-	}
-#endif
+
 	kfree(gpio_array);
 
 	return rc;
@@ -488,7 +454,9 @@ int msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 			__func__, __LINE__, power_info, sensor_i2c_client);
 		return -EINVAL;
 	}
-	pr_err("%s for %s\n", __func__, s_ctrl->sensordata->sensor_name);
+
+	qpnp_enable_haptics();
+
 	return msm_camera_power_down(power_info, sensor_device_type,
 		sensor_i2c_client);
 }
@@ -539,7 +507,10 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 			break;
 		}
 	}
-	pr_err("%s for %s\n", __func__, s_ctrl->sensordata->sensor_name);
+
+	if (!rc)
+		qpnp_disable_haptics();
+
 	return rc;
 }
 
@@ -594,7 +565,7 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 		return rc;
 	}
 
-	pr_err("%s: read id: 0x%x expected id 0x%x:\n", __func__, chipid,
+	CDBG("%s: read id: 0x%x expected id 0x%x:\n", __func__, chipid,
 		slave_info->sensor_id);
 	if (msm_sensor_id_by_mask(s_ctrl, chipid) != slave_info->sensor_id) {
 		pr_err("msm_sensor_match_id chip id doesnot match\n");
@@ -602,54 +573,6 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 	}
 	return rc;
 }
-
-/* LGE_CHANGE_S, get sensor temperature, 2015-07-20, byungsoo.moon@lge.com */
-int msm_sensor_get_temperature(struct msm_sensor_ctrl_t *s_ctrl, struct sensorb_cfg_data32 *cdata)
-{
-	int rc = 0;
-	uint16_t sensor_temperature = 0;
-	struct msm_camera_i2c_client *sensor_i2c_client;
-	struct msm_camera_slave_info *slave_info;
-	const char *sensor_name;
-
-	if (!s_ctrl) {
-		pr_err("%s:%d failed: %p\n",
-			__func__, __LINE__, s_ctrl);
-		return -EINVAL;
-	}
-	sensor_i2c_client = s_ctrl->sensor_i2c_client;
-	slave_info = s_ctrl->sensordata->slave_info;
-	sensor_name = s_ctrl->sensordata->sensor_name;
-
-	if (!sensor_i2c_client || !slave_info || !sensor_name) {
-		pr_err("%s:%d failed: %p %p %p\n",
-			__func__, __LINE__, sensor_i2c_client, slave_info,
-			sensor_name);
-		return -EINVAL;
-	}
-
-	rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
-		sensor_i2c_client, 0x0138, 0x01, MSM_CAMERA_I2C_BYTE_DATA);
-	if (rc < 0) {
-		pr_err("%s: %s: read id failed\n", __func__, sensor_name);
-		return rc;
-	}
-
-	rc = sensor_i2c_client->i2c_func_tbl->i2c_read(
-		sensor_i2c_client, 0x013A, &sensor_temperature, MSM_CAMERA_I2C_BYTE_DATA);
-	if (rc < 0) {
-		pr_err("%s: %s: get sensor temp failed\n", __func__, sensor_name);
-		return rc;
-	}
-
-	if (copy_to_user((void *)compat_ptr((cdata->cfg.setting)), &sensor_temperature,
-		sizeof(uint16_t))) {
-		pr_err("%s:%d failed\n", __func__, __LINE__);
-		rc = -EFAULT;
-	}
-	return rc;
-}
-/* LGE_CHANGE_E, get sensor temperature, 2015-07-20, byungsoo.moon@lge.com */
 
 static struct msm_sensor_ctrl_t *get_sctrl(struct v4l2_subdev *sd)
 {
@@ -723,6 +646,8 @@ static long msm_sensor_subdev_ioctl(struct v4l2_subdev *sd,
 		msm_sensor_stop_stream(s_ctrl);
 		return 0;
 	default:
+		pr_err_ratelimited("%s: unsupported compat type 0x%x\n",
+				__func__, cmd);
 		return -ENOIOCTLCMD;
 	}
 }
@@ -857,63 +782,9 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 
 		conf_array.reg_setting = reg_setting;
 
-#ifdef CONFIG_SPI_MH1
-		//if start stream, i2c switch to mh1 from module
-		if ((!strcmp(s_ctrl->sensordata->sensor_name, "imx234")) && ((lge_get_board_revno() == HW_REV_0) || (lge_get_board_revno() == HW_REV_A))){
-			//notice: add config or model define
-			pr_err("%s:%d reg_addr: %d, data: %d \n", __func__, __LINE__, 
-				conf_array.reg_setting->reg_addr, conf_array.reg_setting->reg_data);
-			if (mh1_sensor_i2c == false){
-				if ((conf_array.reg_setting->reg_addr == 0x100) && (conf_array.reg_setting->reg_data == 0x01)){
-					pr_err("[%s]i2c gpio sw : HIGH ==> MH1\n", __func__);			
-					if (gpio_is_valid(gpio_sw_mh1_ap)) {
-						gpio_direction_output(gpio_sw_mh1_ap, 1);
-						gpio_set_value_cansleep(gpio_sw_mh1_ap, 1);
-						pr_err("[%s] gpio[%d] enable!! mh1 i2c\n", __func__, gpio_sw_mh1_ap);
-						mh1_sensor_i2c = true;
-					}
-
-					//send a command start stream to mh1
-					rc = msm_mh1_start_stream(1);
-					if (rc < 0) {
-						pr_err("%s:Failed msm_mh1_start_stream!!!\n",__func__);
-						rc = -EFAULT;
-					}
-				}else{
-					pr_err("[%s]ap<->sensor i2c!!! Do register setting!!!  \n", __func__);
-					rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->
-						i2c_write_table(s_ctrl->sensor_i2c_client,
-						&conf_array);
-				}
-			}else{
-				if ((conf_array.reg_setting->reg_addr == 0x100) && (conf_array.reg_setting->reg_data == 0x01)){
-					rc = msm_mh1_start_stream(0);
-					if (rc < 0) {
-						pr_err("%s:Failed msm_mh1_start_stream!!!\n",__func__);
-						rc = -EFAULT;
-					}
-				}else if ((conf_array.reg_setting->reg_addr == 0x100) && (conf_array.reg_setting->reg_data == 0x00)){
-					//send a command stop stream to mh1
-					rc = msm_mh1_stop_stream();
-					if (rc < 0) {
-						pr_err("%s:Failed msm_mh1_stop_stream!!!\n",__func__);
-						rc = -EFAULT;
-					}
-				}else{
-					pr_err("[%s]mh1<->sensor i2c!!! skip!! CHECK THE REGISTER:0x%x \n", __func__, conf_array.reg_setting->reg_addr);
-				}
-			}
-		}else{
-			CDBG("[%s] calling i2c_write_table \n", __func__);
-			rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->
-					i2c_write_table(s_ctrl->sensor_i2c_client,
-					&conf_array);
-		}
-#else
 		rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->
 			i2c_write_table(s_ctrl->sensor_i2c_client,
 			&conf_array);
-#endif
 		kfree(reg_setting);
 		break;
 	}
@@ -1015,21 +886,11 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 			rc = -EFAULT;
 			break;
 		}
-#ifdef CONFIG_SPI_MH1
-		if ((mh1_sensor_i2c == true) && ((lge_get_board_revno() == HW_REV_0) || (lge_get_board_revno() == HW_REV_A))){
-			pr_err("[%s]mh1<->sensor i2c!!! CFG_WRITE_I2C_SEQ_ARRAY skip !!!  \n", __func__);
-		}else{
-			conf_array.reg_setting = reg_setting;
-			rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->
-				i2c_write_seq_table(s_ctrl->sensor_i2c_client,
-				&conf_array);
-		}
-#else
+
 		conf_array.reg_setting = reg_setting;
 		rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->
 			i2c_write_seq_table(s_ctrl->sensor_i2c_client,
 			&conf_array);
-#endif
 		kfree(reg_setting);
 		break;
 	}
@@ -1061,14 +922,6 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 	case CFG_POWER_DOWN:
 		kfree(s_ctrl->stop_setting.reg_setting);
 		s_ctrl->stop_setting.reg_setting = NULL;
-
-/* LGE_CHANGE_S, LGE Preview tunning for lowlight , 2015-12-28, soojong.jin@lge.com */
-#if defined(CONFIG_LGE_CAM_PREVIEW_TUNE)
-             pr_err("CAM_PREVIEW_TUNE_OFF\n");
-		pp_set_cam_preview_tune_status(CAM_PREVIEW_TUNE_OFF);
-#endif
-/* LGE_CHANGE_E, LGE Preview tunning for lowlight , 2015-12-28, soojong.jin@lge.com */
-
 		if (s_ctrl->sensor_state != MSM_SENSOR_POWER_UP) {
 			pr_err("%s:%d failed: invalid state %d\n", __func__,
 				__LINE__, s_ctrl->sensor_state);
@@ -1078,21 +931,7 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 		if (s_ctrl->func_tbl->sensor_power_down) {
 			if (s_ctrl->sensordata->misc_regulator)
 				msm_sensor_misc_regulator(s_ctrl, 0);
-#ifdef CONFIG_SPI_MH1
-			if ((!strcmp(s_ctrl->sensordata->sensor_name, "imx234")) && ((lge_get_board_revno() == HW_REV_0) || (lge_get_board_revno() == HW_REV_A)) && mh1_sensor_i2c){
-				rc = msm_mh1_stop_stream();
-				if (rc < 0) {
-					pr_err("%s:Failed msm_mh1_stop_stream!!!\n",__func__);
-					rc = -EFAULT;
-				}
-				if (gpio_is_valid(gpio_sw_mh1_ap)) {
-					gpio_direction_output(gpio_sw_mh1_ap, 1);
-					gpio_set_value_cansleep(gpio_sw_mh1_ap, 0);
-					pr_err("[%s] gpio[%d] disable --> AP I2C!!\n", __func__, gpio_sw_mh1_ap);
-					mh1_sensor_i2c = false;
-				}
-			}
-#endif
+
 			rc = s_ctrl->func_tbl->sensor_power_down(s_ctrl);
 			if (rc < 0) {
 				pr_err("%s:%d failed rc %d\n", __func__,
@@ -1151,37 +990,7 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 		}
 		break;
 	}
-/* LGE_CHANGE_S, get sensor temperature, 2015-07-20, byungsoo.moon@lge.com */
-	case CFG_GET_SENSER_TEMPERATURE: {
-#ifdef CONFIG_SPI_MH1
-		if (!strcmp(s_ctrl->sensordata->sensor_name, "imx234")){
-			if(lge_get_board_revno() > HW_REV_A)
-				msm_sensor_get_temperature(s_ctrl, cdata);
-			else
-				pr_err("%s:%d skip!!\n", __func__, __LINE__);
-		}
-#endif
-	}
-	break;
-/* LGE_CHANGE_E, get sensor temperature, 2015-07-20, byungsoo.moon@lge.com */
 
-/* LGE_CHANGE_S, LGE Preview tunning for lowlight , 2015-12-28, soojong.jin@lge.com */
-    case CFG_SET_PREVIEW_TUNE_ON: {
-#if defined(CONFIG_LGE_CAM_PREVIEW_TUNE)
-             pr_err("CAM_PREVIEW_TUNE_ON\n");
-		pp_set_cam_preview_tune_status(CAM_PREVIEW_TUNE_ON);
-#endif /* LGE_CAM_PREVIEW_TUNE */
-    }
-    break;
-
-    case CFG_SET_PREVIEW_TUNE_OFF: {
-#if defined(CONFIG_LGE_CAM_PREVIEW_TUNE)
-             pr_err("CAM_PREVIEW_TUNE_OFF\n");
-		pp_set_cam_preview_tune_status(CAM_PREVIEW_TUNE_OFF);
-#endif 
-    }
-    break;
-/* LGE_CHANGE_E, LGE Preview tunning for lowlight , 2015-12-28, soojong.jin@lge.com */
 	default:
 		rc = -EFAULT;
 		break;
@@ -1494,7 +1303,7 @@ int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 				break;
 			}
 			s_ctrl->sensor_state = MSM_SENSOR_POWER_UP;
-			CDBG("%s:%d sensor state %d\n", __func__, __LINE__,
+			pr_err("%s:%d sensor state %d\n", __func__, __LINE__,
 				s_ctrl->sensor_state);
 		} else {
 			rc = -EFAULT;
@@ -1521,7 +1330,7 @@ int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 				break;
 			}
 			s_ctrl->sensor_state = MSM_SENSOR_POWER_DOWN;
-			CDBG("%s:%d sensor state %d\n", __func__, __LINE__,
+			pr_err("%s:%d sensor state %d\n", __func__, __LINE__,
 				s_ctrl->sensor_state);
 		} else {
 			rc = -EFAULT;
@@ -1580,17 +1389,6 @@ int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 int msm_sensor_check_id(struct msm_sensor_ctrl_t *s_ctrl)
 {
 	int rc;
-
-#ifdef CONFIG_SPI_MH1
-	if (mh1_sensor_i2c){
-		if (!strcmp(s_ctrl->sensordata->sensor_name, "imx234")){
-			gpio_direction_output(gpio_sw_mh1_ap, 1);
-			gpio_set_value_cansleep(gpio_sw_mh1_ap, 0);
-			pr_err("[%s] gpio[%d] disable --> AP I2C!!\n", __func__, gpio_sw_mh1_ap);
-			mh1_sensor_i2c = false;
-		}
-	}
-#endif
 
 	if (s_ctrl->func_tbl->sensor_match_id)
 		rc = s_ctrl->func_tbl->sensor_match_id(s_ctrl);
@@ -1692,8 +1490,6 @@ int32_t msm_sensor_platform_probe(struct platform_device *pdev,
 			return rc;
 		}
 	}
-	pr_err("%s sensor name %s\n", __func__,
-		s_ctrl->sensordata->sensor_name);
 	s_ctrl->sensordata->power_info.dev = &pdev->dev;
 	s_ctrl->sensor_device_type = MSM_CAMERA_PLATFORM_DEVICE;
 	s_ctrl->sensor_i2c_client->cci_client = kzalloc(sizeof(
@@ -1737,7 +1533,7 @@ int32_t msm_sensor_platform_probe(struct platform_device *pdev,
 		return rc;
 	}
 
-	pr_err("%s %s probe succeeded\n", __func__,
+	pr_info("%s %s probe succeeded\n", __func__,
 		s_ctrl->sensordata->sensor_name);
 	v4l2_subdev_init(&s_ctrl->msm_sd.sd,
 		s_ctrl->sensor_v4l2_subdev_ops);
@@ -1891,16 +1687,6 @@ int msm_sensor_i2c_probe(struct i2c_client *client,
 	s_ctrl->sensordata->sensor_info->session_id = session_id;
 	s_ctrl->msm_sd.close_seq = MSM_SD_CLOSE_2ND_CATEGORY | 0x3;
 	msm_sd_register(&s_ctrl->msm_sd);
-/* LGE_CHANGE_S, for i2c driver, 2015-05-12, yt.jeon@lge.com */
-	msm_sensor_v4l2_subdev_fops = v4l2_subdev_fops;
-#ifdef CONFIG_COMPAT
-	msm_sensor_v4l2_subdev_fops.compat_ioctl32 =
-		msm_sensor_subdev_fops_ioctl;
-#endif
-	s_ctrl->msm_sd.sd.devnode->fops =
-		&msm_sensor_v4l2_subdev_fops;
-/* LGE_CHANGE_E, for i2c driver, 2015-05-12, yt.jeon@lge.com */
-
 	CDBG("%s:%d\n", __func__, __LINE__);
 
 	s_ctrl->func_tbl->sensor_power_down(s_ctrl);

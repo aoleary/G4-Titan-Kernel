@@ -121,11 +121,6 @@ int32_t msm_sensor_get_dt_gpio_set_tbl(struct device_node *of_node,
 int32_t msm_sensor_init_gpio_pin_tbl(struct device_node *of_node,
 	struct msm_camera_gpio_conf *gconf, uint16_t *gpio_array,
 	uint16_t gpio_array_size);
-
-#ifdef CONFIG_SPI_MH1
-bool msm_sensor_get_i2c_path(void);
-#endif
-
 #ifdef CONFIG_COMPAT
 long msm_sensor_subdev_fops_ioctl(struct file *file,
 	unsigned int cmd,
