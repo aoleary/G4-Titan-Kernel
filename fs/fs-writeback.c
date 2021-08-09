@@ -862,8 +862,7 @@ static long wb_writeback(struct bdi_writeback *wb,
 		 * safe.
 		 */
 		if (work->for_kupdate) {
-			oldest_jif = jiffies -
-				msecs_to_jiffies(dirty_expire_interval * 10);
+			oldest_jif = jiffies - (30 * HZ);
 		} else if (work->for_background)
 			oldest_jif = jiffies;
 
@@ -1168,7 +1167,7 @@ void __mark_inode_dirty(struct inode *inode, int flags)
 	if ((inode->i_state & flags) == flags)
 		return;
 
-	if (unlikely(block_dump > 1))
+	if (unlikely(block_dump))
 		block_dump___mark_inode_dirty(inode);
 
 	spin_lock(&inode->i_lock);

@@ -239,7 +239,7 @@ static void _find_mem_entries(struct kgsl_mmu *mmu, unsigned int faultaddr,
 	unsigned int ptbase, struct _mem_entry *preventry,
 	struct _mem_entry *nextentry)
 {
-	struct kgsl_process_private *private;
+	struct kgsl_process_private *private = NULL, *p;
 	int id = kgsl_mmu_get_ptname_from_ptbase(mmu, ptbase);
 
 	memset(preventry, 0, sizeof(*preventry));
@@ -249,19 +249,23 @@ static void _find_mem_entries(struct kgsl_mmu *mmu, unsigned int faultaddr,
 	nextentry->gpuaddr = 0xFFFFFFFF;
 
 	mutex_lock(&kgsl_driver.process_mutex);
+	list_for_each_entry(p, &kgsl_driver.process_list, list) {
+		if (p->pagetable && (p->pagetable->name == id)) {
+			if (kgsl_process_private_get(p))
+				private = p;
+			break;
+		}
+	}
+	mutex_unlock(&kgsl_driver.process_mutex);
 
-	list_for_each_entry(private, &kgsl_driver.process_list, list) {
-
-		if (private->pagetable && (private->pagetable->name != id))
-			continue;
-
+	if (private != NULL) {
 		spin_lock(&private->mem_lock);
 		_prev_entry(private, faultaddr, preventry);
 		_next_entry(private, faultaddr, nextentry);
 		spin_unlock(&private->mem_lock);
-	}
 
-	mutex_unlock(&kgsl_driver.process_mutex);
+		kgsl_process_private_put(private);
+	}
 }
 
 static void _print_entry(struct kgsl_device *device, struct _mem_entry *entry)
@@ -307,8 +311,8 @@ static int kgsl_iommu_fault_handler(struct iommu_domain *domain,
 	struct kgsl_iommu *iommu;
 	struct kgsl_iommu_unit *iommu_unit;
 	struct kgsl_iommu_device *iommu_dev;
-	unsigned int ptbase, fsr;
-	unsigned int pid;
+	phys_addr_t ptbase;
+	unsigned int pid, fsr;
 	struct _mem_entry prev, next;
 	unsigned int fsynr0, fsynr1;
 	int write;
@@ -380,7 +384,7 @@ static int kgsl_iommu_fault_handler(struct iommu_domain *domain,
 	}
 
 	ptbase = KGSL_IOMMU_GET_CTX_REG_Q(iommu, iommu_unit,
-				iommu_dev->ctx_id, TTBR0);
+		iommu_dev->ctx_id, TTBR0) & KGSL_IOMMU_CTX_TTBR0_ADDR_MASK;
 
 	fsynr0 = KGSL_IOMMU_GET_CTX_REG(iommu, iommu_unit,
 		iommu_dev->ctx_id, FSYNR0);
@@ -403,8 +407,8 @@ static int kgsl_iommu_fault_handler(struct iommu_domain *domain,
 		KGSL_MEM_CRIT(iommu_dev->kgsldev,
 			"GPU PAGE FAULT: addr = %lX pid = %d\n", addr, pid);
 		KGSL_MEM_CRIT(iommu_dev->kgsldev,
-		 "context = %d TTBR0 = %X FSR = %X FSYNR0 = %X FSYNR1 = %X(%s fault)\n",
-			iommu_dev->ctx_id, ptbase, fsr, fsynr0, fsynr1,
+		 "context = %d TTBR0 = %pa FSR = %X FSYNR0 = %X FSYNR1 = %X(%s fault)\n",
+			iommu_dev->ctx_id, &ptbase, fsr, fsynr0, fsynr1,
 			write ? "write" : "read");
 
 		_check_if_freed(iommu_dev, addr, pid);
@@ -799,8 +803,8 @@ static int kgsl_attach_pagetable_iommu_domain(struct kgsl_mmu *mmu)
 					iommu_unit->clks[0] = drvdata->pclk;
 					iommu_unit->clks[1] = drvdata->clk;
 					iommu_unit->clks[2] = drvdata->aclk;
-					iommu_unit->clks[3] =
-							iommu->gtcu_iface_clk;
+					iommu_unit->clks[3] = iommu->iface_clk;
+					iommu_unit->clks[4] = iommu->gtbu_clk;
 				}
 			}
 		}
@@ -1329,11 +1333,6 @@ static int kgsl_iommu_init(struct kgsl_mmu *mmu)
 
 	if (mmu->secured)
 		secured_pool_sz = KGSL_IOMMU_SECURE_MEM_SIZE;
-
-	if (KGSL_MMU_USE_PER_PROCESS_PT &&
-		of_property_match_string(pdev->dev.of_node, "clock-names",
-						"gtcu_iface_clk") >= 0)
-		iommu->gtcu_iface_clk = clk_get(&pdev->dev, "gtcu_iface_clk");
 
 	mmu->pt_base = KGSL_MMU_MAPPED_MEM_BASE;
 	mmu->pt_size = (KGSL_MMU_MAPPED_MEM_SIZE - secured_pool_sz);

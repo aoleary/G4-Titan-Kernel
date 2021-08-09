@@ -18,6 +18,8 @@ KBUILD_OPTIONS += $(WLAN_SELECT)
 KBUILD_OPTIONS += WLAN_OPEN_SOURCE=$(WLAN_OPEN_SOURCE)
 KBUILD_OPTIONS += $(KBUILD_EXTRA) # Extra config if any
 
+KBUILD_CFLAGS  += -Wno-error=maybe-uninitialized
+
 all:
 	$(MAKE) -C $(KERNEL_SRC) M=$(shell pwd) modules $(KBUILD_OPTIONS)
 

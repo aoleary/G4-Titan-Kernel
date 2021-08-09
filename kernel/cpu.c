@@ -367,6 +367,10 @@ int __ref cpu_down(unsigned int cpu)
 {
 	int err;
 
+	/* kthreads require one little-cluster CPU to stay online */
+	if (unlikely(!cpu))
+		return -EINVAL;
+
 	cpu_maps_update_begin();
 
 	if (cpu_hotplug_disabled) {
@@ -411,7 +415,7 @@ static int _cpu_up(unsigned int cpu, int tasks_frozen)
 	ret = __cpu_notify(CPU_UP_PREPARE | mod, hcpu, -1, &nr_calls);
 	if (ret) {
 		nr_calls--;
-		printk(KERN_WARNING "%s: attempt to bring up CPU %u failed\n",
+		printk(KERN_DEBUG "%s: attempt to bring up CPU %u failed\n",
 				__func__, cpu);
 		goto out_notify;
 	}
@@ -583,6 +587,7 @@ void __weak arch_enable_nonboot_cpus_end(void)
 void __ref enable_nonboot_cpus(void)
 {
 	int cpu, error;
+	struct device *cpu_device;
 
 	/* Allow everyone to use the CPU hotplug again */
 	cpu_maps_update_begin();
@@ -598,6 +603,12 @@ void __ref enable_nonboot_cpus(void)
 		error = _cpu_up(cpu, 1);
 		if (!error) {
 			pr_debug("CPU%d is up\n", cpu);
+			cpu_device = get_cpu_device(cpu);
+			if (!cpu_device)
+				pr_err("%s: failed to get cpu%d device\n",
+				       __func__, cpu);
+			else
+				kobject_uevent(&cpu_device->kobj, KOBJ_ONLINE);
 			continue;
 		}
 		printk(KERN_WARNING "Error taking CPU%d up: %d\n", cpu, error);

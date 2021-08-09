@@ -8187,7 +8187,7 @@ void wlan_hdd_cfg80211_acs_ch_select_evt(hdd_adapter_t *adapter)
 				      wlan_hdd_cfg80211_start_pending_acs);
 #endif
 		/* Lets give 500ms for OBSS + START_BSS to complete */
-		schedule_delayed_work(&con_sap_adapter->acs_pending_work,
+		queue_delayed_work(system_power_efficient_wq, &con_sap_adapter->acs_pending_work,
 							msecs_to_jiffies(500));
 		clear_bit(ACS_PENDING, &con_sap_adapter->event_flags);
 	}
@@ -20077,7 +20077,9 @@ static int __wlan_hdd_cfg80211_add_station(struct wiphy *wiphy,
 {
     int status = -EPERM;
 #ifdef FEATURE_WLAN_TDLS
+#ifdef TRACE_RECORD
     hdd_adapter_t *pAdapter =  WLAN_HDD_GET_PRIV_PTR(dev);
+#endif
     hdd_context_t *pHddCtx = wiphy_priv(wiphy);
     u32 mask, set;
 
