@@ -1,5 +1,4 @@
 #include <linux/export.h>
-#include <linux/init.h>
 #include <linux/bitops.h>
 #include <linux/elf.h>
 #include <linux/mm.h>
@@ -66,8 +65,8 @@ static inline int wrmsrl_amd_safe(unsigned msr, unsigned long long val)
  *	performance at the same time..
  */
 
-extern void vide(void);
-__asm__(".align 4\nvide: ret");
+extern __visible void vide(void);
+__asm__(".globl vide\n\t.align 4\nvide: ret");
 
 static void init_amd_k5(struct cpuinfo_x86 *c)
 {
@@ -607,7 +606,7 @@ static void init_amd(struct cpuinfo_x86 *c)
 
 	/* Enable workaround for FXSAVE leak */
 	if (c->x86 >= 6)
-		set_cpu_cap(c, X86_FEATURE_FXSAVE_LEAK);
+		set_cpu_bug(c, X86_BUG_FXSAVE_LEAK);
 
 	if (!c->x86_model_id[0]) {
 		switch (c->x86) {

@@ -123,69 +123,71 @@ static inline void wbinvd(void)
 
 #define get_kernel_rpl()  (pv_info.kernel_rpl)
 
-static inline u64 paravirt_read_msr(unsigned msr, int *err)
+static inline u64 paravirt_read_msr_safe(unsigned msr, int *err)
 {
-	return PVOP_CALL2(u64, pv_cpu_ops.read_msr, msr, err);
+	return PVOP_CALL2(u64, pv_cpu_ops.read_msr_safe, msr, err);
 }
 
-static inline int paravirt_write_msr(unsigned msr, unsigned low, unsigned high)
+static inline int paravirt_write_msr_safe(unsigned msr,
+					  unsigned low, unsigned high)
 {
-	return PVOP_CALL3(int, pv_cpu_ops.write_msr, msr, low, high);
+	return PVOP_CALL3(int, pv_cpu_ops.write_msr_safe, msr, low, high);
 }
 
 /* These should all do BUG_ON(_err), but our headers are too tangled. */
 #define rdmsr(msr, val1, val2)			\
 do {						\
 	int _err;				\
-	u64 _l = paravirt_read_msr(msr, &_err);	\
+	u64 _l = paravirt_read_msr_safe(msr, &_err);	\
 	val1 = (u32)_l;				\
 	val2 = _l >> 32;			\
 } while (0)
 
 #define wrmsr(msr, val1, val2)			\
 do {						\
-	paravirt_write_msr(msr, val1, val2);	\
+	paravirt_write_msr_safe(msr, val1, val2);	\
 } while (0)
 
 #define rdmsrl(msr, val)			\
 do {						\
 	int _err;				\
-	val = paravirt_read_msr(msr, &_err);	\
+	val = paravirt_read_msr_safe(msr, &_err);	\
 } while (0)
 
-#define wrmsrl(msr, val)	wrmsr(msr, (u32)((u64)(val)), ((u64)(val))>>32)
-#define wrmsr_safe(msr, a, b)	paravirt_write_msr(msr, a, b)
+static inline void wrmsrl(unsigned msr, u64 val)
+{
+	wrmsr(msr, (u32)val, (u32)(val>>32));
+}
+
+#define wrmsr_safe(msr, a, b)	paravirt_write_msr_safe(msr, a, b)
 
 /* rdmsr with exception handling */
-#define rdmsr_safe(msr, a, b)			\
-({						\
-	int _err;				\
-	u64 _l = paravirt_read_msr(msr, &_err);	\
-	(*a) = (u32)_l;				\
-	(*b) = _l >> 32;			\
-	_err;					\
+#define rdmsr_safe(msr, a, b)				\
+({							\
+	int _err;					\
+	u64 _l = paravirt_read_msr_safe(msr, &_err);	\
+	(*a) = (u32)_l;					\
+	(*b) = _l >> 32;				\
+	_err;						\
 })
 
 static inline int rdmsrl_safe(unsigned msr, unsigned long long *p)
 {
 	int err;
 
-	*p = paravirt_read_msr(msr, &err);
+	*p = paravirt_read_msr_safe(msr, &err);
 	return err;
 }
 
-static inline u64 paravirt_read_tsc(void)
+static inline cycles_t get_cycles(void)
 {
-	return PVOP_CALL0(u64, pv_cpu_ops.read_tsc);
+#ifndef CONFIG_X86_TSC
+	if (!cpu_has_tsc)
+		return 0;
+#endif
+
+	return rdtsc();
 }
-
-#define rdtscl(low)				\
-do {						\
-	u64 _l = paravirt_read_tsc();		\
-	low = (int)_l;				\
-} while (0)
-
-#define rdtscll(val) (val = paravirt_read_tsc())
 
 static inline unsigned long long paravirt_sched_clock(void)
 {
@@ -214,27 +216,6 @@ do {						\
 } while (0)
 
 #define rdpmcl(counter, val) ((val) = paravirt_read_pmc(counter))
-
-static inline unsigned long long paravirt_rdtscp(unsigned int *aux)
-{
-	return PVOP_CALL1(u64, pv_cpu_ops.read_tscp, aux);
-}
-
-#define rdtscp(low, high, aux)				\
-do {							\
-	int __aux;					\
-	unsigned long __val = paravirt_rdtscp(&__aux);	\
-	(low) = (u32)__val;				\
-	(high) = (u32)(__val >> 32);			\
-	(aux) = __aux;					\
-} while (0)
-
-#define rdtscpll(val, aux)				\
-do {							\
-	unsigned long __aux; 				\
-	val = paravirt_rdtscp(&__aux);			\
-	(aux) = __aux;					\
-} while (0)
 
 static inline void paravirt_alloc_ldt(struct desc_struct *ldt, unsigned entries)
 {

@@ -151,22 +151,21 @@ struct pv_cpu_ops {
 	void (*cpuid)(unsigned int *eax, unsigned int *ebx,
 		      unsigned int *ecx, unsigned int *edx);
 
-	/* MSR, PMC and TSR operations.
-	   err = 0/-EFAULT.  wrmsr returns 0/-EFAULT. */
-	u64 (*read_msr)(unsigned int msr, int *err);
-	int (*write_msr)(unsigned int msr, unsigned low, unsigned high);
+	/* MSR operations.
+	   err = 0/-EIO.  wrmsr returns 0/-EIO. */
+	u64 (*read_msr_safe)(unsigned int msr, int *err);
+	int (*write_msr_safe)(unsigned int msr, unsigned low, unsigned high);
 
-	u64 (*read_tsc)(void);
 	u64 (*read_pmc)(int counter);
-	unsigned long long (*read_tscp)(unsigned int *aux);
 
+#ifdef CONFIG_X86_32
 	/*
 	 * Atomically enable interrupts and return to userspace.  This
-	 * is only ever used to return to 32-bit processes; in a
-	 * 64-bit kernel, it's used for 32-on-64 compat processes, but
-	 * never native 64-bit processes.  (Jump, not call.)
+	 * is only used in 32-bit kernels.  64-bit kernels use
+	 * usergs_sysret32 instead.
 	 */
 	void (*irq_enable_sysexit)(void);
+#endif
 
 	/*
 	 * Switch to usermode gs and return to 64-bit usermode using
@@ -387,7 +386,8 @@ extern struct pv_lock_ops pv_lock_ops;
 
 /* Simple instruction patching code. */
 #define DEF_NATIVE(ops, name, code) 					\
-	extern const char start_##ops##_##name[], end_##ops##_##name[];	\
+	extern const char start_##ops##_##name[] __visible,		\
+			  end_##ops##_##name[] __visible;		\
 	asm("start_" #ops "_" #name ": " code "; end_" #ops "_" #name ":")
 
 unsigned paravirt_patch_nop(void);
