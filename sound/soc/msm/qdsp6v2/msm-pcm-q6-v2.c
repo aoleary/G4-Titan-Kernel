@@ -208,7 +208,7 @@ static void event_handler(uint32_t opcode,
 				atomic_inc(&prtd->in_count);
 			}
 			if (atomic_read(&prtd->in_count) == prtd->periods) {
-				pr_info("%s: reclaimed all bufs\n", __func__);
+				pr_debug("%s: reclaimed all bufs\n", __func__);
 				if (atomic_read(&prtd->start))
 					snd_pcm_period_elapsed(substream);
 				wake_up(&the_locks.read_wait);
@@ -285,6 +285,11 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
 		dev_get_drvdata(soc_prtd->platform->dev);
 	if (!pdata) {
 		pr_err("%s: platform data not populated\n", __func__);
+		return -EINVAL;
+	}
+	if (!prtd || !prtd->audio_client) {
+		pr_err("%s: private data null or audio client freed\n",
+			__func__);
 		return -EINVAL;
 	}
 	params = &soc_prtd->dpcm[substream->stream].hw_params;
@@ -374,6 +379,11 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
 		dev_get_drvdata(soc_prtd->platform->dev);
 	if (!pdata) {
 		pr_err("%s: platform data not populated\n", __func__);
+		return -EINVAL;
+	}
+	if (!prtd || !prtd->audio_client) {
+		pr_err("%s: private data null or audio client freed\n",
+			__func__);
 		return -EINVAL;
 	}
 
