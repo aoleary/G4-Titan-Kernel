@@ -485,9 +485,7 @@ REG_TABLE_ENTRY g_registry_table[] =
    REG_VARIABLE( CFG_ENABLE_LOGP_NAME, WLAN_PARAM_Integer,
                  hdd_config_t, fIsLogpEnabled,
                  VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-                 CFG_ENABLE_LOGP_DEFAULT,
-                 CFG_ENABLE_LOGP_MIN,
-                 CFG_ENABLE_LOGP_MAX ),
+                 0 , 0, 0),
 
    REG_VARIABLE( CFG_ENABLE_IMPS_NAME, WLAN_PARAM_Integer,
                  hdd_config_t, fIsImpsEnabled,
@@ -3568,9 +3566,7 @@ REG_TABLE_ENTRY g_registry_table[] =
    REG_VARIABLE( CFG_ENABLE_FW_DEBUG_LOG_LEVEL, WLAN_PARAM_Integer,
                 hdd_config_t, enableFwLogLevel,
                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-                CFG_ENABLE_FW_DEBUG_LOG_LEVEL_DEFAULT,
-                CFG_ENABLE_FW_DEBUG_LOG_LEVEL_MIN,
-                CFG_ENABLE_FW_DEBUG_LOG_LEVEL_MAX ),
+                0, 0, 0),
 
    REG_VARIABLE( CFG_ENABLE_FW_RTS_PROFILE, WLAN_PARAM_Integer,
                 hdd_config_t, rts_profile,
@@ -3582,7 +3578,7 @@ REG_TABLE_ENTRY g_registry_table[] =
    REG_VARIABLE_STRING( CFG_ENABLE_FW_MODULE_LOG_LEVEL, WLAN_PARAM_String,
                 hdd_config_t, enableFwModuleLogLevel,
                 VAR_FLAGS_OPTIONAL,
-                (void *) CFG_ENABLE_FW_MODULE_LOG_DEFAULT),
+                0),
 
 
 
@@ -4541,13 +4537,6 @@ REG_TABLE_ENTRY g_registry_table[] =
                 CFG_EDCA_BE_AIFS_VALUE_MIN,
                 CFG_EDCA_BE_AIFS_VALUE_MAX),
 
-   REG_VARIABLE(CFG_RX_WAKELOCK_TIMEOUT_NAME, WLAN_PARAM_Integer,
-                hdd_config_t, rx_wakelock_timeout,
-                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-                CFG_RX_WAKELOCK_TIMEOUT_DEFAULT,
-                CFG_RX_WAKELOCK_TIMEOUT_MIN,
-                CFG_RX_WAKELOCK_TIMEOUT_MAX),
-
    REG_VARIABLE(CFG_ACTIVE_MODE_OFFLOAD, WLAN_PARAM_Integer,
                 hdd_config_t, active_mode_offload,
                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -4700,8 +4689,8 @@ static char *i_trim(char *str)
 
    /* Find the first non white-space*/
    for (ptr = str; i_isspace(*ptr); ptr++);
-      if (*ptr == '\0')
-         return str;
+   if (*ptr == '\0')
+      return str;
 
    /* This is the new start of the string*/
    str = ptr;
@@ -4709,8 +4698,8 @@ static char *i_trim(char *str)
    /* Find the last non white-space */
    ptr += strlen(ptr) - 1;
    for (; ptr != str && i_isspace(*ptr); ptr--);
-      /* Null terminate the following character */
-      ptr[1] = '\0';
+   /* Null terminate the following character */
+   ptr[1] = '\0';
 
    return str;
 }
@@ -6551,6 +6540,10 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
 #if defined WLAN_FEATURE_VOWIFI
     if (ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_MCAST_BCAST_FILTER_SETTING, pConfig->mcastBcastFilterSetting,
                      NULL, eANI_BOOLEAN_FALSE)==eHAL_STATUS_FAILURE)
+    {
+       fStatus = FALSE;
+       hddLog(LOGE,"Failure: Could not pass on WNI_CFG_MCAST_BCAST_FILTER_SETTING configuration info to CCM");
+    }
 #endif
 
      if (ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_SINGLE_TID_RC, pConfig->bSingleTidRc,

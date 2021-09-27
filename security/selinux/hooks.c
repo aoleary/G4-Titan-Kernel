@@ -133,6 +133,7 @@ int selinux_enabled = 1;
 #endif
 
 static struct kmem_cache *sel_inode_cache;
+static struct kmem_cache *file_security_cache;
 
 /**
  * selinux_secmark_enabled - Check to see if SECMARK is currently enabled
@@ -245,10 +246,21 @@ static void inode_free_security(struct inode *inode)
 	struct inode_security_struct *isec = inode->i_security;
 	struct superblock_security_struct *sbsec = inode->i_sb->s_security;
 
-	spin_lock(&sbsec->isec_lock);
-	if (!list_empty(&isec->list))
+	/*
+	 * As not all inode security structures are in a list, we check for
+	 * empty list outside of the lock to make sure that we won't waste
+	 * time taking a lock doing nothing.
+	 *
+	 * The list_del_init() function can be safely called more than once.
+	 * It should not be possible for this function to be called with
+	 * concurrent list_add(), but for better safety against future changes
+	 * in the code, we use list_empty_careful() here.
+	 */
+	if (!list_empty_careful(&isec->list)) {
+		spin_lock(&sbsec->isec_lock);
 		list_del_init(&isec->list);
-	spin_unlock(&sbsec->isec_lock);
+		spin_unlock(&sbsec->isec_lock);
+	}
 
 	/*
 	 * The inode may still be referenced in a path walk and
@@ -267,7 +279,7 @@ static int file_alloc_security(struct file *file)
 	struct file_security_struct *fsec;
 	u32 sid = current_sid();
 
-	fsec = kzalloc(sizeof(struct file_security_struct), GFP_KERNEL);
+	fsec = kmem_cache_zalloc(file_security_cache, GFP_KERNEL);
 	if (!fsec)
 		return -ENOMEM;
 
@@ -282,7 +294,7 @@ static void file_free_security(struct file *file)
 {
 	struct file_security_struct *fsec = file->f_security;
 	file->f_security = NULL;
-	kfree(fsec);
+	kmem_cache_free(file_security_cache, fsec);
 }
 
 static int superblock_alloc_security(struct super_block *sb)
@@ -1231,6 +1243,7 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 	u32 sid;
 	struct dentry *dentry;
 #define INITCONTEXTLEN 255
+	char context_onstack[INITCONTEXTLEN + 1];
 	char *context = NULL;
 	unsigned len = 0;
 	int rc = 0;
@@ -1284,18 +1297,11 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 		}
 
 		len = INITCONTEXTLEN;
-		context = kmalloc(len+1, GFP_NOFS);
-		if (!context) {
-			rc = -ENOMEM;
-			dput(dentry);
-			goto out_unlock;
-		}
+		context = context_onstack;
 		context[len] = '\0';
 		rc = inode->i_op->getxattr(dentry, XATTR_NAME_SELINUX,
 					   context, len);
 		if (rc == -ERANGE) {
-			kfree(context);
-
 			/* Need a larger buffer.  Query for the right size. */
 			rc = inode->i_op->getxattr(dentry, XATTR_NAME_SELINUX,
 						   NULL, 0);
@@ -1321,7 +1327,8 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 				printk(KERN_WARNING "SELinux: %s:  getxattr returned "
 				       "%d for dev=%s ino=%ld\n", __func__,
 				       -rc, inode->i_sb->s_id, inode->i_ino);
-				kfree(context);
+				if (context != context_onstack)
+					kfree(context);
 				goto out_unlock;
 			}
 			/* Map ENODATA to the default file SID */
@@ -1345,13 +1352,15 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 					       "returned %d for dev=%s ino=%ld\n",
 					       __func__, context, -rc, dev, ino);
 				}
-				kfree(context);
+				if (context != context_onstack)
+					kfree(context);
 				/* Leave with the unlabeled SID */
 				rc = 0;
 				break;
 			}
 		}
-		kfree(context);
+		if (context != context_onstack)
+			kfree(context);
 		isec->sid = sid;
 		break;
 	case SECURITY_FS_USE_TASK:
@@ -5623,7 +5632,7 @@ static int selinux_setprocattr(struct task_struct *p,
 		return error;
 
 	/* Obtain a SID for the context, if one was specified. */
-	if (size && str[1] && str[1] != '\n') {
+	if (size && str[0] && str[0] != '\n') {
 		if (str[size-1] == '\n') {
 			str[size-1] = 0;
 			size--;
@@ -6065,6 +6074,9 @@ static __init int selinux_init(void)
 
 	sel_inode_cache = kmem_cache_create("selinux_inode_security",
 					    sizeof(struct inode_security_struct),
+					    0, SLAB_PANIC, NULL);
+	file_security_cache = kmem_cache_create("selinux_file_security",
+					    sizeof(struct file_security_struct),
 					    0, SLAB_PANIC, NULL);
 	avc_init();
 

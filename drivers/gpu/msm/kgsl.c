@@ -562,9 +562,7 @@ int kgsl_context_init(struct kgsl_device_private *dev_priv,
 		 * detached contexts waiting to finish
 		 */
 
-		mutex_unlock(&device->mutex);
 		flush_workqueue(device->events_wq);
-		mutex_lock(&device->mutex);
 		id = _kgsl_get_context_id(device);
 	}
 
@@ -643,10 +641,7 @@ static void kgsl_context_detach(struct kgsl_context *context)
 
 	trace_kgsl_context_detach(device, context);
 
-	/* we need to hold device mutex to detach */
-	mutex_lock(&device->mutex);
 	context->device->ftbl->drawctxt_detach(context);
-	mutex_unlock(&device->mutex);
 
 	/*
 	 * Cancel all pending events after the device-specific context is
@@ -1043,20 +1038,8 @@ static struct kgsl_process_private *kgsl_process_private_open(
 	 */
 
 	if (private->fd_count++ == 0) {
-		int ret = kgsl_process_init_sysfs(device, private);
-		if (ret) {
-			kgsl_process_private_put(private);
-			private = ERR_PTR(ret);
-			goto done;
-		}
-
-		ret = kgsl_process_init_debugfs(private);
-		if (ret) {
-			kgsl_process_uninit_sysfs(private);
-			kgsl_process_private_put(private);
-			private = ERR_PTR(ret);
-			goto done;
-		}
+		kgsl_process_init_sysfs(device, private);
+		kgsl_process_init_debugfs(private);
 
 		list_add(&private->list, &kgsl_driver.process_list);
 	}
@@ -1532,11 +1515,9 @@ long kgsl_ioctl_device_waittimestamp_ctxtid(
 	unsigned int temp_cur_ts = 0;
 	struct kgsl_context *context;
 
-	mutex_lock(&device->mutex);
-
 	context = kgsl_context_get_owner(dev_priv, param->context_id);
 	if (context == NULL)
-		goto out;
+		return result;
 
 	kgsl_readtimestamp(device, context, KGSL_TIMESTAMP_RETIRED,
 		&temp_cur_ts);
@@ -1551,9 +1532,7 @@ long kgsl_ioctl_device_waittimestamp_ctxtid(
 		&temp_cur_ts);
 	trace_kgsl_waittimestamp_exit(device, temp_cur_ts, result);
 
-out:
 	kgsl_context_put(context);
-	mutex_unlock(&device->mutex);
 
 	return result;
 }
@@ -2064,18 +2043,22 @@ int kgsl_cmdbatch_add_sync(struct kgsl_device *device,
 	struct kgsl_cmd_syncpoint *sync)
 {
 	void *priv;
-	int ret, psize;
+	int psize;
 	int (*func)(struct kgsl_device *device, struct kgsl_cmdbatch *cmdbatch,
 			void *priv);
+	struct kgsl_cmd_syncpoint_timestamp sync_timestamp;
+	struct kgsl_cmd_syncpoint_fence sync_fence;
 
 	switch (sync->type) {
 	case KGSL_CMD_SYNCPOINT_TYPE_TIMESTAMP:
 		psize = sizeof(struct kgsl_cmd_syncpoint_timestamp);
 		func = kgsl_cmdbatch_add_sync_timestamp;
+		priv = &sync_timestamp;
 		break;
 	case KGSL_CMD_SYNCPOINT_TYPE_FENCE:
 		psize = sizeof(struct kgsl_cmd_syncpoint_fence);
 		func = kgsl_cmdbatch_add_sync_fence;
+		priv = &sync_fence;
 		break;
 	default:
 		KGSL_DRV_ERR(device, "Invalid sync type 0x%x\n", sync->type);
@@ -2087,19 +2070,10 @@ int kgsl_cmdbatch_add_sync(struct kgsl_device *device,
 		return -EINVAL;
 	}
 
-	priv = kzalloc(sync->size, GFP_KERNEL);
-	if (priv == NULL)
-		return -ENOMEM;
-
-	if (copy_from_user(priv, sync->priv, sync->size)) {
-		kfree(priv);
+	if (copy_from_user(priv, sync->priv, sync->size))
 		return -EFAULT;
-	}
 
-	ret = func(device, cmdbatch, priv);
-	kfree(priv);
-
-	return ret;
+	return func(device, cmdbatch, priv);
 }
 
 /**
@@ -2590,7 +2564,6 @@ long kgsl_ioctl_drawctxt_create(struct kgsl_device_private *dev_priv,
 	struct kgsl_context *context = NULL;
 	struct kgsl_device *device = dev_priv->device;
 
-	mutex_lock(&device->mutex);
 	context = device->ftbl->drawctxt_create(dev_priv, &param->flags);
 	if (IS_ERR(context)) {
 		result = PTR_ERR(context);
@@ -2605,7 +2578,6 @@ long kgsl_ioctl_drawctxt_create(struct kgsl_device_private *dev_priv,
 	write_unlock(&device->context_lock);
 
 done:
-	mutex_unlock(&device->mutex);
 	return result;
 }
 
@@ -3870,7 +3842,7 @@ long kgsl_ioctl_helper(struct file *filep, unsigned int cmd,
 	unsigned int nr;
 	kgsl_ioctl_func_t func;
 	int ret;
-	char ustack[64];
+	char ustack[72];
 	void *uptr = ustack;
 
 	BUG_ON(dev_priv == NULL);
@@ -4632,6 +4604,7 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 	int result;
 	int status = -EINVAL;
 	struct resource *res;
+	int cpu;
 
 	status = _register_device(device);
 	if (status)
@@ -4779,8 +4752,24 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 				PM_QOS_CPU_DMA_LATENCY,
 				PM_QOS_DEFAULT_VALUE);
 
-	device->events_wq = alloc_workqueue("kgsl-events",
-		WQ_UNBOUND | WQ_MEM_RECLAIM, 0);
+	if (device->pwrctrl.l2pc_cpus_mask) {
+
+		device->pwrctrl.l2pc_cpus_qos.type =
+				PM_QOS_REQ_AFFINE_CORES;
+		cpumask_empty(&device->pwrctrl.l2pc_cpus_qos.cpus_affine);
+		for_each_possible_cpu(cpu) {
+			if ((1 << cpu) & device->pwrctrl.l2pc_cpus_mask)
+				cpumask_set_cpu(cpu, &device->pwrctrl.
+						l2pc_cpus_qos.cpus_affine);
+		}
+
+		pm_qos_add_request(&device->pwrctrl.l2pc_cpus_qos,
+				PM_QOS_CPU_DMA_LATENCY,
+				PM_QOS_DEFAULT_VALUE);
+	}
+
+        device->events_wq = alloc_workqueue("kgsl-events",
+                WQ_UNBOUND | WQ_MEM_RECLAIM, 0);
 
 	/* Initalize the snapshot engine */
 	kgsl_device_snapshot_init(device);
@@ -4815,6 +4804,8 @@ void kgsl_device_platform_remove(struct kgsl_device *device)
 	kgsl_pwrctrl_uninit_sysfs(device);
 
 	pm_qos_remove_request(&device->pwrctrl.pm_qos_req_dma);
+	if (device->pwrctrl.l2pc_cpus_mask)
+		pm_qos_remove_request(&device->pwrctrl.l2pc_cpus_qos);
 
 	idr_destroy(&device->context_idr);
 
@@ -4952,6 +4943,8 @@ static int __init kgsl_core_init(void)
 	}
 
 	kgsl_memfree_init();
+
+	kgsl_sync_init();
 
 	return 0;
 

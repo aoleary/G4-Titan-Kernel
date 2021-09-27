@@ -177,7 +177,7 @@
 #define CFG_BMPS_MODERATE_LI_NAME              "gBmpsModListenInterval"
 #define CFG_BMPS_MODERATE_LI_MIN               ( 1 )
 #define CFG_BMPS_MODERATE_LI_MAX               ( 65535 )
-#define CFG_BMPS_MODERATE_LI_DEFAULT           ( 1 )
+#define CFG_BMPS_MODERATE_LI_DEFAULT           ( 8 )
 
 #define CFG_BMPS_MAXIMUM_LI_NAME               "gBmpsMaxListenInterval"
 #define CFG_BMPS_MAXIMUM_LI_MIN                ( 1 )
@@ -649,9 +649,9 @@ enum
 #define CFG_IGNORE_DTIM_DEFAULT                WNI_CFG_IGNORE_DTIM_STADEF
 
 #define CFG_MAX_LI_MODULATED_DTIM_NAME         "gMaxLIModulatedDTIM"
-#define CFG_MAX_LI_MODULATED_DTIM_MIN          ( 1 )
-#define CFG_MAX_LI_MODULATED_DTIM_MAX          ( 10 )
-#define CFG_MAX_LI_MODULATED_DTIM_DEFAULT      ( 10 )
+#define CFG_MAX_LI_MODULATED_DTIM_MIN          ( 6 )
+#define CFG_MAX_LI_MODULATED_DTIM_MAX          ( 6 )
+#define CFG_MAX_LI_MODULATED_DTIM_DEFAULT      ( 6 )
 
 #define CFG_RX_ANT_CONFIGURATION_NAME          "gNumRxAnt"
 #define CFG_RX_ANT_CONFIGURATION_NAME_MIN      ( 1 )
@@ -1070,9 +1070,9 @@ enum
 #define CFG_TELE_BCN_MAX_LI_NUM_IDLE_BCNS_DEFAULT    ( 15 )
 
 #define CFG_BCN_EARLY_TERM_WAKE_NAME                 "beaconEarlyTerminationWakeInterval"
-#define CFG_BCN_EARLY_TERM_WAKE_MIN                  ( 2 )
-#define CFG_BCN_EARLY_TERM_WAKE_MAX                  ( 255 )
-#define CFG_BCN_EARLY_TERM_WAKE_DEFAULT              ( 3 )
+#define CFG_BCN_EARLY_TERM_WAKE_MIN                  ( 8 )
+#define CFG_BCN_EARLY_TERM_WAKE_MAX                  ( 8 )
+#define CFG_BCN_EARLY_TERM_WAKE_DEFAULT              ( 8 )
 
 #ifdef WLAN_FEATURE_NEIGHBOR_ROAMING
 #define CFG_NEIGHBOR_SCAN_TIMER_PERIOD_NAME             "gNeighborScanTimerPeriod"
@@ -1157,14 +1157,14 @@ enum
 #define CFG_EMPTY_SCAN_REFRESH_PERIOD_DEFAULT      (0)
 
 #define CFG_ROAM_BMISS_FIRST_BCNT_NAME                  "gRoamBmissFirstBcnt"
-#define CFG_ROAM_BMISS_FIRST_BCNT_MIN                   (5)
-#define CFG_ROAM_BMISS_FIRST_BCNT_MAX                   (100)
-#define CFG_ROAM_BMISS_FIRST_BCNT_DEFAULT               (10)
+#define CFG_ROAM_BMISS_FIRST_BCNT_MIN                   (25)
+#define CFG_ROAM_BMISS_FIRST_BCNT_MAX                   (25)
+#define CFG_ROAM_BMISS_FIRST_BCNT_DEFAULT               (25)
 
 #define CFG_ROAM_BMISS_FINAL_BCNT_NAME                  "gRoamBmissFinalBcnt"
-#define CFG_ROAM_BMISS_FINAL_BCNT_MIN                   (5)
-#define CFG_ROAM_BMISS_FINAL_BCNT_MAX                   (100)
-#define CFG_ROAM_BMISS_FINAL_BCNT_DEFAULT               (10)
+#define CFG_ROAM_BMISS_FINAL_BCNT_MIN                   (35)
+#define CFG_ROAM_BMISS_FINAL_BCNT_MAX                   (35)
+#define CFG_ROAM_BMISS_FINAL_BCNT_DEFAULT               (35)
 
 #define CFG_ROAM_BEACON_RSSI_WEIGHT_NAME                "gRoamBeaconRssiWeight"
 #define CFG_ROAM_BEACON_RSSI_WEIGHT_MIN                 (0)
@@ -1239,7 +1239,7 @@ enum
 #define CFG_ENABLE_HOST_ARPOFFLOAD_NAME         "hostArpOffload"
 #define CFG_ENABLE_HOST_ARPOFFLOAD_MIN          ( 0 )
 #define CFG_ENABLE_HOST_ARPOFFLOAD_MAX          ( 1 )
-#define CFG_ENABLE_HOST_ARPOFFLOAD_DEFAULT      ( 0 )
+#define CFG_ENABLE_HOST_ARPOFFLOAD_DEFAULT      ( 1 )
 
 #define CFG_ENABLE_HOST_SSDP_NAME              "ssdp"
 #define CFG_ENABLE_HOST_SSDP_MIN               ( 0 )
@@ -1268,7 +1268,7 @@ enum
 #define CFG_ENABLE_HOST_NSOFFLOAD_NAME         "hostNSOffload"
 #define CFG_ENABLE_HOST_NSOFFLOAD_MIN          ( 0 )
 #define CFG_ENABLE_HOST_NSOFFLOAD_MAX          ( 1 )
-#define CFG_ENABLE_HOST_NSOFFLOAD_DEFAULT      ( 0 )
+#define CFG_ENABLE_HOST_NSOFFLOAD_DEFAULT      ( 1 )
 
 
 #define CFG_BAND_CAPABILITY_NAME          "BandCapability"
@@ -1277,9 +1277,9 @@ enum
 #define CFG_BAND_CAPABILITY_DEFAULT       (0)
 
 #define CFG_ENABLE_BEACON_EARLY_TERMINATION_NAME          "enableBeaconEarlyTermination"
-#define CFG_ENABLE_BEACON_EARLY_TERMINATION_MIN           ( 0 )
+#define CFG_ENABLE_BEACON_EARLY_TERMINATION_MIN           ( 1 )
 #define CFG_ENABLE_BEACON_EARLY_TERMINATION_MAX           ( 1 )
-#define CFG_ENABLE_BEACON_EARLY_TERMINATION_DEFAULT       ( 0 )
+#define CFG_ENABLE_BEACON_EARLY_TERMINATION_DEFAULT       ( 1 )
 
 #define CFG_ENABLE_CLOSE_LOOP_NAME                 "gEnableCloseLoop"
 #define CFG_ENABLE_CLOSE_LOOP_MIN                  WNI_CFG_FIXED_RATE_STAMIN
@@ -2016,9 +2016,9 @@ typedef enum
  * Default: Disable
  */
 #define CFG_ENABLE_MODULATED_DTIM_NAME       "gEnableModulatedDTIM"
-#define CFG_ENABLE_MODULATED_DTIM_MIN        ( 0 )
-#define CFG_ENABLE_MODULATED_DTIM_MAX        ( 5 )
-#define CFG_ENABLE_MODULATED_DTIM_DEFAULT    ( 0 )
+#define CFG_ENABLE_MODULATED_DTIM_MIN        ( 2 )
+#define CFG_ENABLE_MODULATED_DTIM_MAX        ( 2 )
+#define CFG_ENABLE_MODULATED_DTIM_DEFAULT    ( 2 )
 
 /*
  * Enable/Disable Multicast MAC Address List feature
@@ -2081,14 +2081,14 @@ typedef enum
 #define CFG_TDLS_IMPLICIT_TRIGGER_DEFAULT           ( 0 )
 
 #define CFG_TDLS_TX_STATS_PERIOD                    "gTDLSTxStatsPeriod"
-#define CFG_TDLS_TX_STATS_PERIOD_MIN                ( 10 )
+#define CFG_TDLS_TX_STATS_PERIOD_MIN                (1000)
 #define CFG_TDLS_TX_STATS_PERIOD_MAX                ( 4294967295UL )
-#define CFG_TDLS_TX_STATS_PERIOD_DEFAULT            (500)
+#define CFG_TDLS_TX_STATS_PERIOD_DEFAULT            (2000)
 
 #define CFG_TDLS_TX_PACKET_THRESHOLD                "gTDLSTxPacketThreshold"
 #define CFG_TDLS_TX_PACKET_THRESHOLD_MIN            ( 0 )
 #define CFG_TDLS_TX_PACKET_THRESHOLD_MAX            ( 4294967295UL )
-#define CFG_TDLS_TX_PACKET_THRESHOLD_DEFAULT        (10)
+#define CFG_TDLS_TX_PACKET_THRESHOLD_DEFAULT        (40)
 
 #define CFG_TDLS_DISCOVERY_PERIOD                   "gTDLSDiscoveryPeriod"
 #define CFG_TDLS_DISCOVERY_PERIOD_MIN               ( 5000 )
@@ -3805,10 +3805,6 @@ enum dot11p_mode {
 #define CFG_EDCA_BE_AIFS_VALUE_MAX        (15)
 #define CFG_EDCA_BE_AIFS_VALUE_DEFAULT    (3)
 
-#define CFG_RX_WAKELOCK_TIMEOUT_NAME         "rx_wakelock_timeout"
-#define CFG_RX_WAKELOCK_TIMEOUT_DEFAULT      (50)
-#define CFG_RX_WAKELOCK_TIMEOUT_MIN          (0)
-#define CFG_RX_WAKELOCK_TIMEOUT_MAX          (100)
 /*
  * In static display use case when APPS is in stand alone power save mode enable
  * active offload mode which helps FW to filter out MC/BC data packets to avoid
@@ -4641,7 +4637,6 @@ struct hdd_config {
    uint32_t                    edca_vi_aifs;
    uint32_t                    edca_bk_aifs;
    uint32_t                    edca_be_aifs;
-   uint32_t                    rx_wakelock_timeout;
    bool                        active_mode_offload;
 
    bool probe_req_ie_whitelist;

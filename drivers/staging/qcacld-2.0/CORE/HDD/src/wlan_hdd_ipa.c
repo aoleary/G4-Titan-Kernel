@@ -367,6 +367,7 @@ struct ipa_uc_pending_event {
 	uint8_t mac_addr[VOS_MAC_ADDR_SIZE];
 };
 
+#ifdef WLAN_DEBUG
 static const char *op_string[HDD_IPA_UC_OPCODE_MAX] = {
 	"TX_SUSPEND",
 	"TX_RESUME",
@@ -375,6 +376,7 @@ static const char *op_string[HDD_IPA_UC_OPCODE_MAX] = {
 	"STATS",
 	"OPCODE_MAX"
 };
+#endif
 
 struct uc_rm_work_struct {
 	struct work_struct work;
@@ -1656,8 +1658,10 @@ static void hdd_ipa_uc_op_cb(struct op_msg_type *op_msg, void *usr_ctxt)
 		return;
 	}
 
+#ifdef TRACE_RECORD
 	HDD_IPA_LOG(VOS_TRACE_LEVEL_DEBUG,
 		"%s, OPCODE %s", __func__, op_string[msg->op_code]);
+#endif
 
 	if ((HDD_IPA_UC_OPCODE_TX_RESUME == msg->op_code) ||
 		(HDD_IPA_UC_OPCODE_RX_RESUME == msg->op_code)) {
@@ -2367,7 +2371,7 @@ static int hdd_ipa_rm_try_release(struct hdd_ipa_priv *hdd_ipa)
 	 * while there is healthy amount of data transfer going on by
 	 * releasing the wake_lock after some delay.
 	 */
-	schedule_delayed_work(&hdd_ipa->wake_lock_work,
+	queue_delayed_work(system_power_efficient_wq, &hdd_ipa->wake_lock_work,
 			msecs_to_jiffies(HDD_IPA_RX_INACTIVITY_MSEC_DELAY));
 
 	adf_os_spin_unlock_bh(&hdd_ipa->rm_lock);
