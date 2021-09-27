@@ -39,7 +39,7 @@ int ia32_setup_frame(int sig, struct ksignal *ksig,
 #endif
 
 extern unsigned int mxcsr_feature_mask;
-extern void fpu_init(void);
+extern void fpu__cpu_init(void);
 extern void eager_fpu_init(void);
 
 DECLARE_PER_CPU(struct task_struct *, fpu_owner_task);
@@ -89,22 +89,22 @@ static inline int is_x32_frame(void)
 
 static __always_inline __pure bool use_eager_fpu(void)
 {
-	return static_cpu_has(X86_FEATURE_EAGER_FPU);
+	return static_cpu_has_safe(X86_FEATURE_EAGER_FPU);
 }
 
 static __always_inline __pure bool use_xsaveopt(void)
 {
-	return static_cpu_has(X86_FEATURE_XSAVEOPT);
+	return static_cpu_has_safe(X86_FEATURE_XSAVEOPT);
 }
 
 static __always_inline __pure bool use_xsave(void)
 {
-	return static_cpu_has(X86_FEATURE_XSAVE);
+	return static_cpu_has_safe(X86_FEATURE_XSAVE);
 }
 
 static __always_inline __pure bool use_fxsr(void)
 {
-        return static_cpu_has(X86_FEATURE_FXSR);
+	return static_cpu_has_safe(X86_FEATURE_FXSR);
 }
 
 static inline void fx_finit(struct i387_fxsave_struct *fx)
@@ -295,7 +295,7 @@ static inline int restore_fpu_checking(struct task_struct *tsk)
 	/* AMD K7/K8 CPUs don't save/restore FDP/FIP/FOP unless an exception
 	   is pending.  Clear the x87 state here by setting it to fixed
 	   values. "m" is a random variable that should be in L1 */
-	if (unlikely(static_cpu_has(X86_FEATURE_FXSAVE_LEAK))) {
+	if (unlikely(static_cpu_has_bug_safe(X86_BUG_FXSAVE_LEAK))) {
 		asm volatile(
 			"fnclex\n\t"
 			"emms\n\t"
