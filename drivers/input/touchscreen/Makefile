@@ -95,3 +95,5 @@ obj-$(CONFIG_TOUCHSCREEN_LGE_SIC_SPI)	+= pplus/
 
 obj-$(CONFIG_LGE_TOUCH_CORE)        += lge/
 obj-$(CONFIG_LGE_TOUCH_CORE_MTK)    += lge/
+
+subdir-ccflags-y += -DCONFIG_DEBUG_FS

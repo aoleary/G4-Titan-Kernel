@@ -163,7 +163,9 @@ struct sync_pt {
 struct sync_fence {
 	struct file		*file;
 	struct kref		kref;
+#ifdef CONFIG_SYNC_DEBUG
 	char			name[32];
+#endif
 
 	/* this list is immutable once the fence is created */
 	struct list_head	pt_list_head;
@@ -299,6 +301,14 @@ struct sync_fence *sync_fence_fdget(int fd);
  */
 void sync_fence_put(struct sync_fence *fence);
 
+/**
+ * sync_fence_check() - checks if the fence has already signaled
+ * @fence:		fence to check
+ *
+ * Returns true if @fence has already signaled.
+ */
+bool sync_fence_check(struct sync_fence *fence);
+ 
 /**
  * sync_fence_install() - installs a fence into a file descriptor
  * @fence:	fence to instal

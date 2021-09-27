@@ -1197,10 +1197,8 @@ static int __hif_pci_runtime_suspend(struct pci_dev *pdev)
 	}
 
 	ret = __hif_pci_suspend(pdev, state, true);
-	if (ret) {
-		pr_err("%s: pci_suspend failed: %d\n", __func__, ret);
+	if (ret)
 		goto suspend_fail;
-	}
 
 	ret = vos_auto_suspend();
 
@@ -2622,7 +2620,7 @@ __hif_pci_suspend(struct pci_dev *pdev, pm_message_t state, bool runtime_pm)
     }
 
     if (wma_check_scan_in_progress(temp_module)) {
-        printk("%s: Scan in progress. Aborting suspend%s\n", __func__,
+        pr_debug("%s: Scan in progress. Aborting suspend%s\n", __func__,
                 runtime_pm ? " for runtime PM" : "");
         goto out;
     }

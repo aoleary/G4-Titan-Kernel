@@ -241,6 +241,7 @@ static int fw_lookup_and_allocate_buf(const char *fw_name,
 	return tmp ? 0 : -ENOMEM;
 }
 
+#ifdef CONFIG_FW_CACHE
 static struct firmware_buf *fw_lookup_buf(const char *fw_name)
 {
 	struct firmware_buf *tmp;
@@ -252,6 +253,7 @@ static struct firmware_buf *fw_lookup_buf(const char *fw_name)
 
 	return tmp;
 }
+#endif
 
 static void __fw_free_buf(struct kref *ref)
 {
@@ -585,10 +587,8 @@ static void fw_dev_release(struct device *dev)
 	module_put(THIS_MODULE);
 }
 
-static int firmware_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int do_firmware_uevent(struct firmware_priv *fw_priv, struct kobj_uevent_env *env)
 {
-	struct firmware_priv *fw_priv = to_firmware_priv(dev);
-
 	if (add_uevent_var(env, "FIRMWARE=%s", fw_priv->buf->fw_id))
 		return -ENOMEM;
 	if (add_uevent_var(env, "TIMEOUT=%i", loading_timeout))
@@ -597,6 +597,18 @@ static int firmware_uevent(struct device *dev, struct kobj_uevent_env *env)
 		return -ENOMEM;
 
 	return 0;
+}
+
+static int firmware_uevent(struct device *dev, struct kobj_uevent_env *env)
+{
+	struct firmware_priv *fw_priv = to_firmware_priv(dev);
+	int err = 0;
+
+	mutex_lock(&fw_lock);
+	if (fw_priv->buf)
+		err = do_firmware_uevent(fw_priv, env);
+	mutex_unlock(&fw_lock);
+	return err;
 }
 
 static struct class firmware_class = {
@@ -1053,7 +1065,8 @@ static int _request_firmware_load(struct firmware_priv *fw_priv, bool uevent,
 		dev_set_uevent_suppress(f_dev, false);
 		dev_dbg(f_dev, "firmware: requesting %s\n", buf->fw_id);
 		if (timeout != MAX_SCHEDULE_TIMEOUT)
-			schedule_delayed_work(&fw_priv->timeout_work, timeout);
+			queue_delayed_work(system_power_efficient_wq,
+					   &fw_priv->timeout_work, timeout);
 
 		kobject_uevent(&fw_priv->dev.kobj, KOBJ_ADD);
 	}
@@ -1486,6 +1499,9 @@ request_firmware_nowait_direct(
 					map_data);
 }
 
+#ifdef CONFIG_FW_CACHE
+static ASYNC_DOMAIN_EXCLUSIVE(fw_cache_domain);
+
 /**
  * cache_firmware - cache one firmware image in kernel memory space
  * @fw_name: the firmware image name
@@ -1545,9 +1561,6 @@ int uncache_firmware(const char *fw_name)
 
 	return -EINVAL;
 }
-
-#ifdef CONFIG_PM_SLEEP
-static ASYNC_DOMAIN_EXCLUSIVE(fw_cache_domain);
 
 static struct fw_cache_entry *alloc_fw_cache_entry(const char *name)
 {
@@ -1758,8 +1771,8 @@ static void device_uncache_fw_images_work(struct work_struct *work)
  */
 static void device_uncache_fw_images_delay(unsigned long delay)
 {
-	schedule_delayed_work(&fw_cache.work,
-			msecs_to_jiffies(delay));
+	queue_delayed_work(system_power_efficient_wq, &fw_cache.work,
+			   msecs_to_jiffies(delay));
 }
 
 static int fw_pm_notify(struct notifier_block *notify_block,
@@ -1812,7 +1825,7 @@ static void __init fw_cache_init(void)
 	INIT_LIST_HEAD(&fw_cache.head);
 	fw_cache.state = FW_LOADER_NO_CACHE;
 
-#ifdef CONFIG_PM_SLEEP
+#ifdef CONFIG_FW_CACHE
 	spin_lock_init(&fw_cache.name_lock);
 	INIT_LIST_HEAD(&fw_cache.fw_names);
 
@@ -1839,7 +1852,7 @@ static int __init firmware_class_init(void)
 
 static void __exit firmware_class_exit(void)
 {
-#ifdef CONFIG_PM_SLEEP
+#ifdef CONFIG_FW_CACHE
 	unregister_syscore_ops(&fw_syscore_ops);
 	unregister_pm_notifier(&fw_cache.pm_notify);
 #endif
@@ -1855,5 +1868,7 @@ module_exit(firmware_class_exit);
 EXPORT_SYMBOL(release_firmware);
 EXPORT_SYMBOL(request_firmware);
 EXPORT_SYMBOL(request_firmware_nowait);
+#ifdef CONFIG_FW_CACHE
 EXPORT_SYMBOL_GPL(cache_firmware);
 EXPORT_SYMBOL_GPL(uncache_firmware);
+#endif

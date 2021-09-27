@@ -52,6 +52,12 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Paul E. McKenney <paulmck@us.ibm.com> and Josh Triplett <josh@freedesktop.org>");
 
+MODULE_ALIAS("rcutorture");
+#ifdef MODULE_PARAM_PREFIX
+#undef MODULE_PARAM_PREFIX
+#endif
+#define MODULE_PARAM_PREFIX "rcutorture."
+
 static int nreaders = -1;	/* # reader threads, defaults to 2*ncpus */
 static int nfakewriters = 4;	/* # fake writer threads */
 static int stat_interval = 60;	/* Interval between stats, in seconds. */
@@ -92,6 +98,8 @@ module_param(stutter, int, 0444);
 MODULE_PARM_DESC(stutter, "Number of seconds to run/halt test");
 module_param(irqreader, int, 0444);
 MODULE_PARM_DESC(irqreader, "Allow RCU readers from irq handlers");
+
+
 module_param(fqs_duration, int, 0444);
 MODULE_PARM_DESC(fqs_duration, "Duration of fqs bursts (us)");
 module_param(fqs_holdoff, int, 0444);
@@ -1483,7 +1491,7 @@ rcu_torture_shutdown(void *arg)
 	unsigned long jiffies_snap;
 
 	VERBOSE_PRINTK_STRING("rcu_torture_shutdown task started");
-	jiffies_snap = ACCESS_ONCE(jiffies);
+	jiffies_snap = jiffies;
 	while (ULONG_CMP_LT(jiffies_snap, shutdown_time) &&
 	       !kthread_should_stop()) {
 		delta = shutdown_time - jiffies_snap;
@@ -1492,7 +1500,7 @@ rcu_torture_shutdown(void *arg)
 				 "rcu_torture_shutdown task: %lu jiffies remaining\n",
 				 torture_type, delta);
 		schedule_timeout_interruptible(delta);
-		jiffies_snap = ACCESS_ONCE(jiffies);
+		jiffies_snap = jiffies;
 	}
 	if (kthread_should_stop()) {
 		VERBOSE_PRINTK_STRING("rcu_torture_shutdown task stopping");

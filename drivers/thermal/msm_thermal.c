@@ -874,7 +874,7 @@ static void update_cpu_freq(int cpu)
 	}
 }
 
-static int * __init get_sync_cluster(struct device *dev, int *cnt)
+static int * get_sync_cluster(struct device *dev, int *cnt)
 {
 	int *sync_cluster = NULL, cluster_cnt = 0, ret = 0;
 	char *key = "qcom,synchronous-cluster-id";
@@ -2523,11 +2523,14 @@ static int __ref update_offline_cores(int val)
 					cpu,
 					hi_thresh->temp);
 #else
+				struct device *cpu_device = get_cpu_device(cpu);
+				kobject_uevent(&cpu_device->kobj, KOBJ_OFFLINE);
 				pr_debug("Offlined CPU%d\n", cpu);
+                               }
 #endif
 			trace_thermal_post_core_offline(cpu,
 				cpumask_test_cpu(cpu, cpu_online_mask));
-		} else if (online_core && (previous_cpus_offlined & BIT(cpu))) {
+		  } else if (online_core && (previous_cpus_offlined & BIT(cpu))) {
 			if (cpu_online(cpu))
 				continue;
 			/* If this core wasn't previously online don't put it
@@ -2548,6 +2551,8 @@ static int __ref update_offline_cores(int val)
                                         cpu,
                                         low_thresh->temp);
 #else
+				struct device *cpu_device = get_cpu_device(cpu);
+				kobject_uevent(&cpu_device->kobj, KOBJ_ONLINE);
 				pr_debug("Onlined CPU%d\n", cpu);
 #endif
 			}
@@ -3033,8 +3038,9 @@ static void check_temp(struct work_struct *work)
 
 reschedule:
 	if (polling_enabled)
-		schedule_delayed_work(&check_temp_work,
-				msecs_to_jiffies(msm_thermal_info.poll_ms));
+		queue_delayed_work(system_power_efficient_wq,
+			&check_temp_work,
+			msecs_to_jiffies(msm_thermal_info.poll_ms));
 }
 
 static int __ref msm_thermal_cpu_callback(struct notifier_block *nfb,
@@ -3093,8 +3099,8 @@ static int hotplug_notify(enum thermal_trip_type type, int temp, void *data)
 {
 	struct cpu_info *cpu_node = (struct cpu_info *)data;
 #ifndef CONFIG_LGE_PM
-	pr_info_ratelimited("%s reach temp threshold: %d\n",
-			       cpu_node->sensor_type, temp);
+	pr_debug("%s reach temp threshold: %d\n",
+		       cpu_node->sensor_type, temp);
 #endif
 	if (!(msm_thermal_info.core_control_mask & BIT(cpu_node->cpu)))
 		return 0;

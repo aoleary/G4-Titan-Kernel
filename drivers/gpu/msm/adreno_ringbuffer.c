@@ -1286,15 +1286,6 @@ adreno_ringbuffer_issueibcmds(struct kgsl_device_private *dev_priv,
 	/* wait for the suspend gate */
 	wait_for_completion(&device->cmdbatch_gate);
 
-	/*
-	 * Clear the wake on touch bit to indicate an IB has been
-	 * submitted since the last time we set it. But only clear
-	 * it when we have rendering commands.
-	 */
-	if (!(cmdbatch->flags & KGSL_CMDBATCH_MARKER)
-		&& !(cmdbatch->flags & KGSL_CMDBATCH_SYNC))
-		device->flags &= ~KGSL_FLAG_WAKE_ON_TOUCH;
-
 	/* Queue the command in the ringbuffer */
 	ret = adreno_dispatcher_queue_cmd(adreno_dev, drawctxt, cmdbatch,
 		timestamp);
@@ -1356,6 +1347,7 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 	struct kgsl_memobj_node *ib;
 	unsigned int numibs = 0;
 	unsigned int *link;
+	unsigned int link_onstack[SZ_256] __aligned(sizeof(long));
 	unsigned int *cmds;
 	struct kgsl_context *context;
 	struct adreno_context *drawctxt;
@@ -1456,10 +1448,14 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 		dwords += 6;
 	}
 
-	link = kzalloc(sizeof(unsigned int) *  dwords, GFP_KERNEL);
-	if (!link) {
-		ret = -ENOMEM;
-		goto done;
+	if (dwords <= ARRAY_SIZE(link_onstack)) {
+		link = link_onstack;
+	} else {
+		link = kmalloc(sizeof(unsigned int) * dwords, GFP_KERNEL);
+		if (!link) {
+			ret = -ENOMEM;
+			goto done;
+		}
 	}
 
 	cmds = link;
@@ -1582,7 +1578,8 @@ done:
 			numibs, cmdbatch->timestamp,
 			cmdbatch->flags, ret, drawctxt->type);
 
-	kfree(link);
+	if (link != link_onstack)
+		kfree(link);
 	return ret;
 }
 

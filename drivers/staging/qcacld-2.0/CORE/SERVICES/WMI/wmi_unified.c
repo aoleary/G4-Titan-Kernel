@@ -761,6 +761,8 @@ static uint16_t wmi_tag_sta_powersave_cmd(wmi_unified_t wmi_hdl, wmi_buf_t buf)
 	ps_cmd = (wmi_sta_powersave_param_cmd_fixed_param *)wmi_buf_data(buf);
 
 	switch(ps_cmd->param) {
+        case WMI_STA_PS_PARAM_TX_WAKE_THRESHOLD:
+        case WMI_STA_PS_PARAM_INACTIVITY_TIME:
 	case WMI_STA_PS_ENABLE_QPOWER:
 		return HTC_TX_PACKET_TAG_AUTO_PM;
 	default:
@@ -1064,11 +1066,8 @@ void wmi_control_rx(void *ctx, HTC_PACKET *htc_packet)
 	void *wmi_cmd_struct_ptr = NULL;
 	u_int32_t idx = 0;
 	int tlv_ok_status = 0;
-
-#if  defined(WMI_INTERFACE_EVENT_LOGGING) || !defined(QCA_CONFIG_SMP)
 	u_int32_t id;
 	u_int8_t *data;
-#endif
 
 	evt_buf = (wmi_buf_t) htc_packet->pPktContext;
 	id = WMI_GET_FIELD(adf_nbuf_data(evt_buf), WMI_CMD_HDR, COMMANDID);

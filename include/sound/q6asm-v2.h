@@ -178,6 +178,7 @@ struct audio_client {
 	int                    session;
 	app_cb		       cb;
 	atomic_t	       cmd_state;
+	atomic_t	       cmd_state_pp;
 	/* Relative or absolute TS */
 	atomic_t	       time_flag;
 	atomic_t	       nowait_cmd_cnt;
@@ -443,10 +444,10 @@ int q6asm_media_format_block_multi_aac(struct audio_client *ac,
 			struct asm_aac_cfg *cfg);
 
 int q6asm_media_format_block_wma(struct audio_client *ac,
-			void *cfg);
+			void *cfg, int stream_id);
 
 int q6asm_media_format_block_wmapro(struct audio_client *ac,
-			void *cfg);
+			void *cfg, int stream_id);
 
 int q6asm_media_format_block_amrwbplus(struct audio_client *ac,
 			struct asm_amrwbplus_cfg *cfg);

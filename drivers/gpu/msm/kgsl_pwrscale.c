@@ -289,7 +289,7 @@ int kgsl_devfreq_get_dev_status(struct device *dev,
 	struct kgsl_device *device = dev_get_drvdata(dev);
 	struct kgsl_pwrctrl *pwrctrl;
 	struct kgsl_pwrscale *pwrscale;
-	ktime_t tmp;
+	ktime_t tmp1, tmp2;
 
 	if (device == NULL)
 		return -ENODEV;
@@ -300,6 +300,8 @@ int kgsl_devfreq_get_dev_status(struct device *dev,
 	pwrctrl = &device->pwrctrl;
 
 	mutex_lock(&device->mutex);
+
+	tmp1 = ktime_get();
 	/*
 	 * If the GPU clock is on grab the latest power counter
 	 * values.  Otherwise the most recent ACTIVE values will
@@ -307,9 +309,9 @@ int kgsl_devfreq_get_dev_status(struct device *dev,
 	 */
 	kgsl_pwrscale_update_stats(device);
 
-	tmp = ktime_get();
-	stat->total_time = ktime_us_delta(tmp, pwrscale->time);
-	pwrscale->time = tmp;
+	tmp2 = ktime_get();
+	stat->total_time = ktime_us_delta(tmp2, pwrscale->time);
+	pwrscale->time = tmp1;
 
 	stat->busy_time = pwrscale->accum_stats.busy_time;
 
@@ -494,6 +496,7 @@ int kgsl_busmon_target(struct device *dev, unsigned long *freq, u32 flags)
 
 	if (pwr->bus_mod != b) {
 		pwr->bus_percent_ab = device->pwrscale.bus_profile.percent_ab;
+		pwr->bus_ab_mbytes =  device->pwrscale.bus_profile.ab_mbytes;
 		kgsl_pwrctrl_buslevel_update(device, true);
 	}
 
@@ -578,6 +581,7 @@ int kgsl_pwrscale_init(struct device *dev, const char *governor)
 		data->bus.num = out;
 		data->bus.ib = &pwr->bus_ib[0];
 		data->bus.index = &pwr->bus_index[0];
+		data->bus.width = pwr->bus_width;
 	} else
 		data->bus.num = 0;
 

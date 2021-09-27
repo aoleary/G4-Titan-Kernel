@@ -556,7 +556,7 @@ static void package_details_release(struct config_item *item)
 {
 	struct package_details *package_details = to_package_details(item);
 
-	pr_info("sdcardfs: removing %s\n", package_details->name.name);
+	pr_debug("sdcardfs: removing %s\n", package_details->name.name);
 	remove_packagelist_entry(&package_details->name);
 	kfree(package_details->name.name);
 	kfree(package_details);
@@ -645,6 +645,7 @@ static struct config_item *extension_details_make_item(struct config_group *grou
 		return ERR_PTR(-ENOMEM);
 	}
 	qstr_init(&extension_details->name, tmp);
+	extension_details->num = extensions_value->num;
 	ret = insert_ext_gid_entry(&extension_details->name, extensions_value->num);
 
 	if (ret) {

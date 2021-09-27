@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2016,2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -54,6 +54,13 @@
 #define DEFAULT_BUS_P 25
 #define DEFAULT_BUS_DIV (100 / DEFAULT_BUS_P)
 
+/*
+ * The effective duration of qos request in usecs. After
+ * timeout, qos request is cancelled automatically.
+ * Kept 80ms default, inline with default GPU idle time.
+ */
+#define KGSL_L2PC_CPU_TIMEOUT	(80 * 1000)
+
 struct clk_pair {
 	const char *name;
 	uint map;
@@ -96,9 +103,14 @@ static struct clk_pair clks[KGSL_MAX_CLKS] = {
 		.name = "gtbu_clk",
 		.map = KGSL_CLK_GFX_GTBU,
 	},
+	{
+		.name = "aon_clk",
+		.map = KGSL_CLK_AON,
+	},
 };
 
-static unsigned int ib_votes[KGSL_MAX_BUSLEVELS];
+static unsigned long ib_votes[KGSL_MAX_BUSLEVELS];
+static unsigned long ab_votes[KGSL_MAX_BUSLEVELS];
 static int last_vote_buslevel;
 static int max_vote_buslevel;
 
@@ -150,7 +162,7 @@ static void _record_pwrevent(struct kgsl_device *device,
 /**
  * kgsl_get_bw() - Return latest msm bus IB vote
  */
-static unsigned int kgsl_get_bw(void)
+static unsigned long kgsl_get_bw(void)
 {
 	return ib_votes[last_vote_buslevel];
 }
@@ -163,14 +175,16 @@ static unsigned int kgsl_get_bw(void)
 static void _ab_buslevel_update(struct kgsl_pwrctrl *pwr,
 				unsigned long *ab)
 {
-	unsigned int ib = ib_votes[last_vote_buslevel];
-	unsigned int max_bw = ib_votes[max_vote_buslevel];
+	unsigned long ib = ib_votes[last_vote_buslevel];
+	unsigned long max_bw = ib_votes[max_vote_buslevel];
 	if (!ab)
 		return;
 	if (ib == 0)
 		*ab = 0;
-	else if (!pwr->bus_percent_ab)
-		*ab = DEFAULT_BUS_P * ib / 100;
+	else if ((!pwr->bus_percent_ab) && (!pwr->bus_ab_mbytes))
+		*ab = ab_votes[last_vote_buslevel];
+	else if (pwr->bus_width)
+		*ab = pwr->bus_ab_mbytes;
 	else
 		*ab = (pwr->bus_percent_ab * max_bw) / 100;
 
@@ -247,6 +261,8 @@ void kgsl_pwrctrl_buslevel_update(struct kgsl_device *device,
 	} else {
 		/* If the bus is being turned off, reset to default level */
 		pwr->bus_mod = 0;
+		pwr->bus_percent_ab = 0;
+		pwr->bus_ab_mbytes = 0;
 	}
 	trace_kgsl_buslevel(device, pwr->active_pwrlevel, buslevel);
 	last_vote_buslevel = buslevel;
@@ -267,7 +283,8 @@ void kgsl_pwrctrl_buslevel_update(struct kgsl_device *device,
 		msm_bus_scale_client_update_request(pwr->pcl, buslevel);
 
 	/* ask a governor to vote on behalf of us */
-	devfreq_vbif_update_bw(ib_votes[last_vote_buslevel], ab);
+	if (pwr->devbw)
+		devfreq_vbif_update_bw(ib_votes[last_vote_buslevel], ab);
 }
 EXPORT_SYMBOL(kgsl_pwrctrl_buslevel_update);
 
@@ -316,7 +333,8 @@ void kgsl_pwrctrl_set_thermal_cycle(struct kgsl_pwrctrl *pwr,
 		if (pwr->thermal_cycle == CYCLE_ENABLE) {
 			pwr->thermal_cycle = CYCLE_ACTIVE;
 			mod_timer(&pwr->thermal_timer, jiffies +
-					(TH_HZ - pwr->thermal_timeout));
+					(msecs_to_jiffies(TH_HZ) -
+					 pwr->thermal_timeout));
 			pwr->thermal_highlow = 1;
 		}
 	} else {
@@ -366,6 +384,22 @@ void kgsl_pwrctrl_pwrlevel_change(struct kgsl_device *device,
 	 * constraints, etc
 	 */
 	new_level = _adjust_pwrlevel(pwr, new_level, &pwr->constraint);
+
+	/*
+	 * When waking up from SLUMBER at turbo then set the pwrlevel
+	 * to one level below turbo
+	 */
+	if (new_level == 0 && test_bit(KGSL_PWRFLAGS_WAKEUP_PWRLEVEL,
+		&device->pwrctrl.ctrl_flags))
+		new_level = 1;
+
+	/*
+	 * When waking up from SLUMBER at turbo then set the pwrlevel
+	 * to one level below turbo
+	 */
+	if (new_level == 0 && test_bit(KGSL_PWRFLAGS_WAKEUP_PWRLEVEL,
+		&device->pwrctrl.ctrl_flags))
+		new_level = 1;
 
 	/*
 	 * When waking up from SLUMBER at turbo then set the pwrlevel
@@ -470,6 +504,33 @@ void kgsl_pwrctrl_set_constraint(struct kgsl_device *device,
 	}
 }
 EXPORT_SYMBOL(kgsl_pwrctrl_set_constraint);
+
+/**
+ * kgsl_pwrctrl_update_l2pc() - Update existing qos request
+ * @device: Pointer to the kgsl_device struct
+ *
+ * Updates an existing qos request to avoid L2PC on the
+ * CPUs (which are selected through dtsi) on which GPU
+ * thread is running. This would help for performance.
+ */
+void kgsl_pwrctrl_update_l2pc(struct kgsl_device *device)
+{
+	int cpu;
+
+	if (device->pwrctrl.l2pc_cpus_mask == 0)
+		return;
+
+	cpu = get_cpu();
+	put_cpu();
+
+	if ((1 << cpu) & device->pwrctrl.l2pc_cpus_mask) {
+		pm_qos_update_request_timeout(
+				&device->pwrctrl.l2pc_cpus_qos,
+				device->pwrctrl.pm_qos_active_latency,
+				KGSL_L2PC_CPU_TIMEOUT);
+	}
+}
+EXPORT_SYMBOL(kgsl_pwrctrl_update_l2pc);
 
 static ssize_t kgsl_pwrctrl_thermal_pwrlevel_store(struct device *dev,
 					 struct device_attribute *attr,
@@ -677,7 +738,7 @@ static ssize_t kgsl_pwrctrl_max_gpuclk_store(struct device *dev,
 		hfreq = pwr->pwrlevels[i].gpu_freq;
 		diff =  hfreq - pwr->pwrlevels[i + 1].gpu_freq;
 		udiff = hfreq - val;
-		pwr->thermal_timeout = (udiff * TH_HZ) / diff;
+		pwr->thermal_timeout = (udiff * msecs_to_jiffies(TH_HZ)) / diff;
 		pwr->thermal_cycle = CYCLE_ENABLE;
 	} else {
 		pwr->thermal_cycle = CYCLE_DISABLE;
@@ -712,8 +773,10 @@ static ssize_t kgsl_pwrctrl_max_gpuclk_show(struct device *dev,
 		unsigned int hfreq = freq;
 		unsigned int lfreq = pwr->pwrlevels[pwr->
 				thermal_pwrlevel + 1].gpu_freq;
-		freq = pwr->thermal_timeout * (lfreq / TH_HZ) +
-			(TH_HZ - pwr->thermal_timeout) * (hfreq / TH_HZ);
+		freq = pwr->thermal_timeout *
+			(lfreq / msecs_to_jiffies(TH_HZ)) +
+			(msecs_to_jiffies(TH_HZ) - pwr->thermal_timeout) *
+			(hfreq / msecs_to_jiffies(TH_HZ));
 	}
 
 	return snprintf(buf, PAGE_SIZE, "%d\n", freq);
@@ -1324,7 +1387,7 @@ void kgsl_thermal_timer(unsigned long data)
 		device->pwrctrl.thermal_highlow = 0;
 	} else {
 		mod_timer(&device->pwrctrl.thermal_timer,
-					jiffies + (TH_HZ -
+					jiffies + (msecs_to_jiffies(TH_HZ) -
 					device->pwrctrl.thermal_timeout));
 		device->pwrctrl.thermal_highlow = 1;
 	}
@@ -1334,8 +1397,8 @@ void kgsl_thermal_timer(unsigned long data)
 
 int kgsl_pwrctrl_init(struct kgsl_device *device)
 {
-	int i, k, m, set_bus = 1, n = 0, result = 0;
-	unsigned int freq_i, rbbmtimer_freq;
+	int i, k, m, n = 0, result = 0;
+	unsigned int rbbmtimer_freq;
 	struct clk *clk;
 	struct platform_device *pdev = device->pdev;
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
@@ -1387,22 +1450,13 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 			pdata->pwrlevel[i].bus_min;
 		pwr->pwrlevels[i].bus_max =
 			pdata->pwrlevel[i].bus_max;
-		/*
-		 * If the bus min/max values are specified to be something
-		 * other than defaults, do not attempt to generate them
-		 * below.
-		 */
-		if (pwr->pwrlevels[i].bus_min != pwr->pwrlevels[i].bus_max)
-			set_bus = 0;
 	}
-	/* Do not set_rate for targets in sync with AXI */
-	if (pwr->pwrlevels[0].gpu_freq > 0) {
-		clk_set_rate(pwr->grp_clks[0], pwr->
-				pwrlevels[pwr->num_pwrlevels - 1].gpu_freq);
-		rbbmtimer_freq = clk_round_rate(pwr->grp_clks[6],
-						KGSL_RBBMTIMER_CLK_FREQ);
-		clk_set_rate(pwr->grp_clks[6], rbbmtimer_freq);
-	}
+
+	clk_set_rate(pwr->grp_clks[0], pwr->
+			pwrlevels[pwr->num_pwrlevels - 1].gpu_freq);
+	rbbmtimer_freq = clk_round_rate(pwr->grp_clks[6],
+					KGSL_RBBMTIMER_CLK_FREQ);
+	clk_set_rate(pwr->grp_clks[6], rbbmtimer_freq);
 
 	pwr->gpu_reg = regulator_get(&pdev->dev, "vdd");
 	if (IS_ERR(pwr->gpu_reg))
@@ -1428,6 +1482,9 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 		&pwr->pm_qos_wakeup_latency))
 		pwr->pm_qos_wakeup_latency = 101;
 
+	kgsl_property_read_u32(device, "qcom,l2pc-cpu-mask",
+			&pwr->l2pc_cpus_mask);
+
 	pm_runtime_enable(&pdev->dev);
 
 	ocmem_bus_node = of_find_node_by_name(
@@ -1452,19 +1509,37 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 
 	/* Set if independent bus BW voting is supported */
 	pwr->bus_control = pdata->bus_control;
+	/* Bus width in bytes, set it to zero if not found */
+	if (of_property_read_u32(pdev->dev.of_node, "qcom,bus-width",
+		&pwr->bus_width))
+		pwr->bus_width = 0;
 
 	/* Check if gpu bandwidth vote device is defined in dts */
-	gpubw_dev_node = of_parse_phandle(pdev->dev.of_node,
+	if (pwr->bus_control) {
+		/* Check if gpu bandwidth vote device is defined in dts */
+		gpubw_dev_node = of_parse_phandle(pdev->dev.of_node,
 					"qcom,gpubw-dev", 0);
-	/*
-	 * Governor support enables the gpu bus scaling via governor
-	 * and hence no need to register for bus scaling client
-	 * if gpubw-dev is defined.
-	 */
-	if (gpubw_dev_node) {
-		p2dev = of_find_device_by_node(gpubw_dev_node);
-		if (p2dev)
-			pwr->devbw = &p2dev->dev;
+		/*
+		 * Governor support enables the gpu bus scaling via governor
+		 * and hence no need to register for bus scaling client
+		 * if gpubw-dev is defined.
+		 */
+		if (gpubw_dev_node) {
+			p2dev = of_find_device_by_node(gpubw_dev_node);
+			if (p2dev) {
+				pwr->devbw = &p2dev->dev;
+			} else {
+				KGSL_PWR_ERR(device,
+					"gpubw-dev not available");
+				result = -EINVAL;
+				goto done;
+			}
+		} else {
+			KGSL_PWR_ERR(device,
+				"Unable to find gpubw-dev device in dts");
+			result = -EINVAL;
+			goto done;
+		}
 	} else {
 		/*
 		 * Register for gpu bus scaling if governor support
@@ -1481,17 +1556,6 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 			goto done;
 		}
 	}
-
-	/*
-	 * Set the range permitted for BIMC votes per-GPU frequency.
-	 * For the moment assume the BIMC votes are listed in order
-	 * per GPU frequency.  If this is no longer needed in the bus
-	 * table the min/max values can be explicitly set in the dtsi
-	 * file.
-	 */
-	freq_i = pwr->min_pwrlevel;
-	if (set_bus == 1)
-		pwr->pwrlevels[freq_i].bus_min = 1;
 
 	/*
 	 * Pull the BW vote out of the bus table.  They will be used to
@@ -1511,26 +1575,21 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 					- 1;
 				if (ib_votes[i] > ib_votes[max_vote_buslevel])
 					max_vote_buslevel = i;
+
+				/* Fill the AB votes */
+				if (vector->ab == 0)
+					ab_votes[i] =
+					DEFAULT_BUS_P * ib_votes[i] / 100;
+				else
+					ab_votes[i] =
+					DIV_ROUND_UP_ULL(vector->ab, 1048576)
+					- 1;
 			}
 
+			/* check for duplicate values */
 			for (k = 0; k < n; k++)
-				if (vector->ib == pwr->bus_ib[k]) {
-					static uint64_t last_ib = 0xFFFFFFFF;
-					/*
-					 * if the bus min/max are already set
-					 * leave them alone.
-					 */
-					if (set_bus == 0)
-						break;
-					if (vector->ib <= last_ib) {
-						pwr->pwrlevels[freq_i--].
-							bus_max = i - 1;
-						pwr->pwrlevels[freq_i].
-							bus_min = i;
-					}
-					last_ib = vector->ib;
 					break;
-				}
+
 			/* if this is a new ib value, save it */
 			if (k == n) {
 				pwr->bus_ib[k] = vector->ib;
@@ -1546,8 +1605,6 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 			}
 		}
 	}
-	if (set_bus == 1)
-		pwr->pwrlevels[0].bus_max = i - 1;
 
 	INIT_WORK(&pwr->thermal_cycle_ws, kgsl_thermal_cycle);
 	setup_timer(&pwr->thermal_timer, kgsl_thermal_timer,
@@ -1627,20 +1684,38 @@ void kgsl_idle_check(struct work_struct *work)
 {
 	struct kgsl_device *device = container_of(work, struct kgsl_device,
 							idle_check_ws);
+	int ret = 0;
+	unsigned int requested_state;
+
 	WARN_ON(device == NULL);
 	if (device == NULL)
 		return;
 
 	mutex_lock(&device->mutex);
 
+	requested_state = device->requested_state;
+
 	if (device->state == KGSL_STATE_ACTIVE
 		   || device->state ==  KGSL_STATE_NAP) {
 
-		if (!atomic_read(&device->active_cnt))
-			kgsl_pwrctrl_change_state(device,
+		if (!atomic_read(&device->active_cnt)) {
+			ret = kgsl_pwrctrl_change_state(device,
 					device->requested_state);
+			if (ret == -EBUSY) {
+				/*
+				 * If the GPU is currently busy, restore
+				 * the requested state and reschedule
+				 * idle work.
+				 */
+				kgsl_pwrctrl_request_state(device,
+					requested_state);
+				queue_work(device->work_queue, &device->idle_check_ws);
+			}
+		}
 
-		kgsl_pwrctrl_request_state(device, KGSL_STATE_NONE);
+		if (!ret)
+			kgsl_pwrctrl_request_state(device, KGSL_STATE_NONE);
+
 		if (device->state == KGSL_STATE_ACTIVE)
 			mod_timer(&device->idle_timer,
 					jiffies +
@@ -1921,6 +1996,10 @@ _sleep(struct kgsl_device *device)
 		kgsl_pwrctrl_set_state(device, KGSL_STATE_SLEEP);
 		pm_qos_update_request(&device->pwrctrl.pm_qos_req_dma,
 					PM_QOS_DEFAULT_VALUE);
+		if (device->pwrctrl.l2pc_cpus_mask)
+			pm_qos_update_request(
+					&device->pwrctrl.l2pc_cpus_qos,
+					PM_QOS_DEFAULT_VALUE);
 		break;
 	case KGSL_STATE_SLUMBER:
 		break;
@@ -1964,6 +2043,10 @@ _slumber(struct kgsl_device *device)
 		kgsl_pwrctrl_set_state(device, KGSL_STATE_SLUMBER);
 		pm_qos_update_request(&device->pwrctrl.pm_qos_req_dma,
 						PM_QOS_DEFAULT_VALUE);
+		if (device->pwrctrl.l2pc_cpus_mask)
+			pm_qos_update_request(
+					&device->pwrctrl.l2pc_cpus_qos,
+					PM_QOS_DEFAULT_VALUE);
 		break;
 	case KGSL_STATE_SUSPEND:
 		complete_all(&device->hwaccess_gate);

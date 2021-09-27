@@ -25,6 +25,8 @@
 static void kgsl_sync_timeline_signal(struct sync_timeline *timeline,
 	unsigned int timestamp);
 
+static struct kmem_cache *kmem_fence_event;
+
 static struct sync_pt *kgsl_sync_pt_create(struct sync_timeline *timeline,
 	struct kgsl_context *context, unsigned int timestamp)
 {
@@ -107,7 +109,7 @@ static int _add_fence_event(struct kgsl_device *device,
 	struct kgsl_fence_event_priv *event;
 	int ret;
 
-	event = kmalloc(sizeof(*event), GFP_KERNEL);
+	event = kmem_cache_alloc(kmem_fence_event, GFP_KERNEL);
 	if (event == NULL)
 		return -ENOMEM;
 
@@ -127,7 +129,7 @@ static int _add_fence_event(struct kgsl_device *device,
 
 	if (ret) {
 		kgsl_context_put(context);
-		kfree(event);
+		kmem_cache_free(kmem_fence_event, event);
 	}
 
 	return ret;
@@ -155,7 +157,6 @@ int kgsl_add_fence_event(struct kgsl_device *device,
 	struct sync_pt *pt;
 	struct sync_fence *fence = NULL;
 	int ret = -EINVAL;
-	char fence_name[sizeof(fence->name)] = {};
 	unsigned int cur;
 
 	priv.fence_fd = -1;
@@ -163,35 +164,28 @@ int kgsl_add_fence_event(struct kgsl_device *device,
 	if (len != sizeof(priv))
 		return -EINVAL;
 
-	mutex_lock(&device->mutex);
-
 	context = kgsl_context_get_owner(owner, context_id);
 
 	if (context == NULL)
-		goto unlock;
+		return -EINVAL;
 
 	if (test_bit(KGSL_CONTEXT_PRIV_INVALID, &context->priv))
-		goto unlock;
+		goto out;
 
 	pt = kgsl_sync_pt_create(context->timeline, context, timestamp);
 	if (pt == NULL) {
 		KGSL_DRV_CRIT_RATELIMIT(device, "kgsl_sync_pt_create failed\n");
 		ret = -ENOMEM;
-		goto unlock;
+		goto out;
 	}
-	snprintf(fence_name, sizeof(fence_name),
-		"%s-pid-%d-ctx-%d-ts-%d",
-		device->name, current->group_leader->pid,
-		context_id, timestamp);
 
-
-	fence = sync_fence_create(fence_name, pt);
+	fence = sync_fence_create("", pt);
 	if (fence == NULL) {
 		/* only destroy pt when not added to fence */
 		kgsl_sync_pt_destroy(pt);
 		KGSL_DRV_CRIT_RATELIMIT(device, "sync_fence_create failed\n");
 		ret = -ENOMEM;
-		goto unlock;
+		goto out;
 	}
 
 	priv.fence_fd = get_unused_fd_flags(0);
@@ -200,7 +194,7 @@ int kgsl_add_fence_event(struct kgsl_device *device,
 			"Unable to get a file descriptor: %d\n",
 			priv.fence_fd);
 		ret = priv.fence_fd;
-		goto unlock;
+		goto out;
 	}
 
 	/*
@@ -211,38 +205,29 @@ int kgsl_add_fence_event(struct kgsl_device *device,
 
 	kgsl_readtimestamp(device, context, KGSL_TIMESTAMP_RETIRED, &cur);
 
-	if (timestamp_cmp(cur, timestamp) >= 0)
+	if (timestamp_cmp(cur, timestamp) >= 0) {
+		ret = 0;
 		kgsl_sync_timeline_signal(context->timeline, cur);
-	else {
+	} else {
 		ret = _add_fence_event(device, context, timestamp);
 		if (ret)
-			goto unlock;
+			goto out;
 	}
-
-	kgsl_context_put(context);
-
-	/* Unlock the mutex before copying to user */
-	mutex_unlock(&device->mutex);
 
 	if (copy_to_user(data, &priv, sizeof(priv))) {
 		ret = -EFAULT;
 		goto out;
 	}
 	sync_fence_install(fence, priv.fence_fd);
-
-	return 0;
-
-unlock:
-	kgsl_context_put(context);
-	mutex_unlock(&device->mutex);
-
 out:
-	if (priv.fence_fd >= 0)
-		put_unused_fd(priv.fence_fd);
+	kgsl_context_put(context);
+	if (ret) {
+		if (priv.fence_fd >= 0)
+			put_unused_fd(priv.fence_fd);
 
-	if (fence)
-		sync_fence_put(fence);
-
+		if (fence)
+			sync_fence_put(fence);
+	}
 	return ret;
 }
 
@@ -394,6 +379,11 @@ struct kgsl_sync_fence_waiter *kgsl_sync_fence_async_wait(int fd,
 	if (fence == NULL)
 		return ERR_PTR(-EINVAL);
 
+	if (sync_fence_check(fence)) {
+		sync_fence_put(fence);
+		return NULL;
+	}
+
 	/* create the waiter */
 	kwaiter = kzalloc(sizeof(*kwaiter), GFP_ATOMIC);
 	if (kwaiter == NULL) {
@@ -405,7 +395,9 @@ struct kgsl_sync_fence_waiter *kgsl_sync_fence_async_wait(int fd,
 	kwaiter->priv = priv;
 	kwaiter->func = func;
 
+#ifdef CONFIG_SYNC_DEBUG
 	strlcpy(kwaiter->name, fence->name, sizeof(kwaiter->name));
+#endif
 
 	sync_fence_waiter_init((struct sync_fence_waiter *) kwaiter,
 		kgsl_sync_callback);
@@ -639,5 +631,12 @@ out:
 		sync_fence_put(fence);
 	kgsl_syncsource_put(syncsource);
 	return ret;
+}
+
+void __init kgsl_sync_init(void)
+{
+	kmem_fence_event = KMEM_CACHE(kgsl_fence_event_priv, SLAB_HWCACHE_ALIGN);
+	if (kmem_fence_event == NULL)
+		pr_err("failed to create kmem_fence_event\n");
 }
 #endif
