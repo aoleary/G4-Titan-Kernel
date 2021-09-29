@@ -59,7 +59,7 @@ u64 native_sched_clock(void)
 	}
 
 	/* read the Time Stamp Counter: */
-	rdtscll(this_offset);
+	this_offset = rdtsc();
 
 	/* return the value in ns */
 	return __cycles_2_ns(this_offset);
@@ -76,12 +76,6 @@ unsigned long long sched_clock(void)
 unsigned long long
 sched_clock(void) __attribute__((alias("native_sched_clock")));
 #endif
-
-unsigned long long native_read_tsc(void)
-{
-	return __native_read_tsc();
-}
-EXPORT_SYMBOL(native_read_tsc);
 
 int check_tsc_unstable(void)
 {
@@ -619,7 +613,7 @@ static void set_cyc2ns_scale(unsigned long cpu_khz, int cpu)
 	scale = &per_cpu(cyc2ns, cpu);
 	offset = &per_cpu(cyc2ns_offset, cpu);
 
-	rdtscll(tsc_now);
+	tsc_now = rdtsc();
 	ns_now = __cycles_2_ns(tsc_now);
 
 	if (cpu_khz) {
@@ -780,9 +774,7 @@ static struct clocksource clocksource_tsc = {
 	.mask                   = CLOCKSOURCE_MASK(64),
 	.flags                  = CLOCK_SOURCE_IS_CONTINUOUS |
 				  CLOCK_SOURCE_MUST_VERIFY,
-#ifdef CONFIG_X86_64
 	.archdata               = { .vclock_mode = VCLOCK_TSC },
-#endif
 };
 
 void mark_tsc_unstable(char *reason)

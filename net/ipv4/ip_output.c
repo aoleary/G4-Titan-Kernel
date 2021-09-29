@@ -211,14 +211,6 @@ static inline int ip_finish_output2(struct sk_buff *skb)
 	return -EINVAL;
 }
 
-static inline int ip_skb_dst_mtu(struct sk_buff *skb)
-{
-	struct inet_sock *inet = skb->sk ? inet_sk(skb->sk) : NULL;
-
-	return (inet && inet->pmtudisc == IP_PMTUDISC_PROBE) ?
-	       skb_dst(skb)->dev->mtu : dst_mtu(skb_dst(skb));
-}
-
 static int ip_finish_output(struct sk_buff *skb)
 {
 #if defined(CONFIG_NETFILTER) && defined(CONFIG_XFRM)
@@ -1038,7 +1030,6 @@ error:
 static int ip_setup_cork(struct sock *sk, struct inet_cork *cork,
 			 struct ipcm_cookie *ipc, struct rtable **rtp)
 {
-	struct inet_sock *inet = inet_sk(sk);
 	struct ip_options_rcu *opt;
 	struct rtable *rt;
 
@@ -1060,14 +1051,21 @@ static int ip_setup_cork(struct sock *sk, struct inet_cork *cork,
 	rt = *rtp;
 	if (unlikely(!rt))
 		return -EFAULT;
-	/*
-	 * We steal reference to this route, caller should not release it
-	 */
-	*rtp = NULL;
-	cork->fragsize = inet->pmtudisc == IP_PMTUDISC_PROBE ?
-			 rt->dst.dev->mtu : dst_mtu(&rt->dst);
+
+	cork->fragsize = ip_sk_use_pmtu(sk) ?
+			 dst_mtu(&rt->dst) : READ_ONCE(rt->dst.dev->mtu);
+
+	if (!inetdev_valid_mtu(cork->fragsize))
+		return -ENETUNREACH;
+
 	cork->dst = &rt->dst;
+	/* We stole this route, caller should not release it. */
+	*rtp = NULL;
+
 	cork->length = 0;
+	cork->ttl = ipc->ttl;
+	cork->tos = ipc->tos;
+	cork->priority = ipc->priority;
 	cork->tx_flags = ipc->tx_flags;
 
 	return 0;
@@ -1311,7 +1309,8 @@ struct sk_buff *__ip_make_skb(struct sock *sk,
 	/* DF bit is set when we want to see DF on outgoing frames.
 	 * If local_df is set too, we still allow to fragment this frame
 	 * locally. */
-	if (inet->pmtudisc >= IP_PMTUDISC_DO ||
+	if (inet->pmtudisc == IP_PMTUDISC_DO ||
+	    inet->pmtudisc == IP_PMTUDISC_PROBE ||
 	    (skb->len <= dst_mtu(&rt->dst) &&
 	     ip_dont_fragment(sk, &rt->dst)))
 		df = htons(IP_DF);
@@ -1319,7 +1318,9 @@ struct sk_buff *__ip_make_skb(struct sock *sk,
 	if (cork->flags & IPCORK_OPT)
 		opt = cork->opt;
 
-	if (rt->rt_type == RTN_MULTICAST)
+	if (cork->ttl != 0)
+		ttl = cork->ttl;
+	else if (rt->rt_type == RTN_MULTICAST)
 		ttl = inet->mc_ttl;
 	else
 		ttl = ip_select_ttl(inet, &rt->dst);
@@ -1327,7 +1328,7 @@ struct sk_buff *__ip_make_skb(struct sock *sk,
 	iph = ip_hdr(skb);
 	iph->version = 4;
 	iph->ihl = 5;
-	iph->tos = inet->tos;
+	iph->tos = (cork->tos != -1) ? cork->tos : inet->tos;
 	iph->frag_off = df;
 	iph->ttl = ttl;
 	iph->protocol = sk->sk_protocol;
@@ -1339,7 +1340,7 @@ struct sk_buff *__ip_make_skb(struct sock *sk,
 		ip_options_build(skb, opt, cork->addr, rt, 0);
 	}
 
-	skb->priority = sk->sk_priority;
+	skb->priority = (cork->tos != -1) ? cork->priority: sk->sk_priority;
 	skb->mark = sk->sk_mark;
 	/*
 	 * Steal rt from cork.dst to avoid a pair of atomic_inc/atomic_dec
@@ -1474,6 +1475,8 @@ void ip_send_unicast_reply(struct sock *sk, struct sk_buff *skb, __be32 daddr,
 	ipc.addr = daddr;
 	ipc.opt = NULL;
 	ipc.tx_flags = 0;
+	ipc.ttl = 0;
+	ipc.tos = -1;
 
 	if (replyopts.opt.opt.optlen) {
 		ipc.opt = &replyopts.opt;
