@@ -428,6 +428,7 @@ enum {
 
 	TRACE_CONTROL_BIT,
 
+	TRACE_BRANCH_BIT,
 /*
  * Abuse of the trace_recursion.
  * As we need a way to maintain state if we are tracing the function
@@ -1066,5 +1067,23 @@ int perf_ftrace_event_register(struct ftrace_event_call *call,
 #else
 #define perf_ftrace_event_register NULL
 #endif
+
+/*
+ * Reset the state of the trace_iterator so that it can read consumed data.
+ * Normally, the trace_iterator is used for reading the data when it is not
+ * consumed, and must retain state.
+ */
+static __always_inline void trace_iterator_reset(struct trace_iterator *iter)
+{
+	const size_t offset = offsetof(struct trace_iterator, seq);
+
+	/*
+	 * Keep gcc from complaining about overwriting more than just one
+	 * member in the structure.
+	 */
+	memset((char *)iter + offset, 0, sizeof(struct trace_iterator) - offset);
+
+	iter->pos = -1;
+}
 
 #endif /* _LINUX_KERNEL_TRACE_H */

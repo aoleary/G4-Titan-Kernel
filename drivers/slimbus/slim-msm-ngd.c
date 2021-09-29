@@ -403,7 +403,7 @@ static int ngd_xfer_msg(struct slim_controller *ctrl, struct slim_msg_txn *txn)
 		 * It also makes HW status cosistent with what SW has it here
 		 */
 		if ((pm_runtime_enabled(dev->dev) && ret < 0) ||
-				dev->state == MSM_CTRL_DOWN) {
+				dev->state >= MSM_CTRL_ASLEEP) {
 			SLIM_ERR(dev, "slim ctrl vote failed ret:%d, state:%d",
 					ret, dev->state);
 			pm_runtime_set_suspended(dev->dev);
@@ -1155,7 +1155,6 @@ static int ngd_slim_rx_msgq_thread(void *data)
 		int retries = 0;
 		u8 wbuf[8];
 
-		set_current_state(TASK_INTERRUPTIBLE);
 		wait_for_completion_interruptible(notify);
 
 		txn.dt = SLIM_MSG_DEST_LOGICALADDR;
@@ -1227,7 +1226,6 @@ static int ngd_notify_slaves(void *data)
 	}
 
 	while (!kthread_should_stop()) {
-		set_current_state(TASK_INTERRUPTIBLE);
 		wait_for_completion_interruptible(&dev->qmi.slave_notify);
 		/* Probe devices for first notification */
 		if (!i) {
@@ -1637,13 +1635,10 @@ static int ngd_slim_runtime_suspend(struct device *device)
 	int ret = 0;
 	mutex_lock(&dev->tx_lock);
 	ret = ngd_slim_power_down(dev);
-	if (ret) {
-		if (ret != -EBUSY)
-			SLIM_INFO(dev, "slim resource not idle:%d\n", ret);
-		dev->state = MSM_CTRL_AWAKE;
-	} else {
+	if (ret && ret != -EBUSY)
+		SLIM_INFO(dev, "slim resource not idle:%d\n", ret);
+	if (!ret || ret == -ETIMEDOUT)
 		dev->state = MSM_CTRL_ASLEEP;
-	}
 	mutex_unlock(&dev->tx_lock);
 	SLIM_INFO(dev, "Slim runtime suspend: ret %d\n", ret);
 	return ret;

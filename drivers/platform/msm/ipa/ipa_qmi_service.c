@@ -1011,10 +1011,12 @@ void ipa_qmi_service_exit(void)
 	}
 
 	/* clean the QMI msg cache */
+	mutex_lock(&ipa_qmi_lock);
 	if (ipa_qmi_ctx != NULL) {
 		vfree(ipa_qmi_ctx);
 		ipa_qmi_ctx = NULL;
 	}
+	mutex_unlock(&ipa_qmi_lock);
 
 	ipa_svc_handle = 0;
 	qmi_modem_init_fin = false;

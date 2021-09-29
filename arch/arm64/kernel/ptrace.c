@@ -19,6 +19,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <linux/audit.h>
 #include <linux/compat.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -40,6 +41,7 @@
 #include <asm/compat.h>
 #include <asm/debug-monitors.h>
 #include <asm/pgtable.h>
+#include <asm/syscall.h>
 #include <asm/traps.h>
 #include <asm/system_misc.h>
 
@@ -56,6 +58,12 @@
  */
 void ptrace_disable(struct task_struct *child)
 {
+	/*
+	 * This would be better off in core code, but PTRACE_DETACH has
+	 * grown its fair share of arch-specific worts and changing it
+	 * is likely to cause regressions on obscure architectures.
+	 */
+	user_disable_single_step(child);
 }
 
 #ifdef CONFIG_HAVE_HW_BREAKPOINT
@@ -818,6 +826,30 @@ static int compat_vfp_set(struct task_struct *target,
 	return ret;
 }
 
+static int compat_tls_get(struct task_struct *target,
+			  const struct user_regset *regset, unsigned int pos,
+			  unsigned int count, void *kbuf, void __user *ubuf)
+{
+	compat_ulong_t tls = (compat_ulong_t)target->thread.tp_value;
+	return user_regset_copyout(&pos, &count, &kbuf, &ubuf, &tls, 0, -1);
+}
+
+static int compat_tls_set(struct task_struct *target,
+			  const struct user_regset *regset, unsigned int pos,
+			  unsigned int count, const void *kbuf,
+			  const void __user *ubuf)
+{
+	int ret;
+	compat_ulong_t tls;
+
+	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf, &tls, 0, -1);
+	if (ret)
+		return ret;
+
+	target->thread.tp_value = tls;
+	return ret;
+}
+
 static const struct user_regset aarch32_regsets[] = {
 	[REGSET_COMPAT_GPR] = {
 		.core_note_type = NT_PRSTATUS,
@@ -840,6 +872,64 @@ static const struct user_regset aarch32_regsets[] = {
 static const struct user_regset_view user_aarch32_view = {
 	.name = "aarch32", .e_machine = EM_ARM,
 	.regsets = aarch32_regsets, .n = ARRAY_SIZE(aarch32_regsets)
+};
+
+static const struct user_regset aarch32_ptrace_regsets[] = {
+	[REGSET_GPR] = {
+		.core_note_type = NT_PRSTATUS,
+		.n = COMPAT_ELF_NGREG,
+		.size = sizeof(compat_elf_greg_t),
+		.align = sizeof(compat_elf_greg_t),
+		.get = compat_gpr_get,
+		.set = compat_gpr_set
+	},
+	[REGSET_FPR] = {
+		.core_note_type = NT_ARM_VFP,
+		.n = VFP_STATE_SIZE / sizeof(compat_ulong_t),
+		.size = sizeof(compat_ulong_t),
+		.align = sizeof(compat_ulong_t),
+		.get = compat_vfp_get,
+		.set = compat_vfp_set
+	},
+	[REGSET_TLS] = {
+		.core_note_type = NT_ARM_TLS,
+		.n = 1,
+		.size = sizeof(compat_ulong_t),
+		.align = sizeof(compat_ulong_t),
+		.get = compat_tls_get,
+		.set = compat_tls_set,
+	},
+#ifdef CONFIG_HAVE_HW_BREAKPOINT
+	[REGSET_HW_BREAK] = {
+		.core_note_type = NT_ARM_HW_BREAK,
+		.n = sizeof(struct user_hwdebug_state) / sizeof(u32),
+		.size = sizeof(u32),
+		.align = sizeof(u32),
+		.get = hw_break_get,
+		.set = hw_break_set,
+	},
+	[REGSET_HW_WATCH] = {
+		.core_note_type = NT_ARM_HW_WATCH,
+		.n = sizeof(struct user_hwdebug_state) / sizeof(u32),
+		.size = sizeof(u32),
+		.align = sizeof(u32),
+		.get = hw_break_get,
+		.set = hw_break_set,
+	},
+#endif
+	[REGSET_SYSTEM_CALL] = {
+		.core_note_type = NT_ARM_SYSTEM_CALL,
+		.n = 1,
+		.size = sizeof(int),
+		.align = sizeof(int),
+		.get = system_call_get,
+		.set = system_call_set,
+	},
+};
+
+static const struct user_regset_view user_aarch32_ptrace_view = {
+	.name = "aarch32", .e_machine = EM_ARM,
+	.regsets = aarch32_ptrace_regsets, .n = ARRAY_SIZE(aarch32_ptrace_regsets)
 };
 
 static int compat_ptrace_read_user(struct task_struct *tsk, compat_ulong_t off,
@@ -1101,8 +1191,16 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 const struct user_regset_view *task_user_regset_view(struct task_struct *task)
 {
 #ifdef CONFIG_COMPAT
-	if (is_compat_thread(task_thread_info(task)))
+	/*
+	 * Core dumping of 32-bit tasks or compat ptrace requests must use the
+	 * user_aarch32_view compatible with arm32. Native ptrace requests on
+	 * 32-bit children use an extended user_aarch32_ptrace_view to allow
+	 * access to the TLS register.
+	 */
+	if (is_compat_task())
 		return &user_aarch32_view;
+	else if (is_compat_thread(task_thread_info(task)))
+		return &user_aarch32_ptrace_view;
 #endif
 	return &user_aarch64_view;
 }
@@ -1145,8 +1243,8 @@ asmlinkage int syscall_trace_enter(struct pt_regs *regs)
 	unsigned int saved_syscallno = regs->syscallno;
 
 	/* Do the secure computing check first; failures should be fast. */
-	if (secure_computing(regs->syscallno) == -1)
-		return RET_SKIP_SYSCALL_TRACE;
+	if (secure_computing() == -1)
+		return -1;
 
 	if (test_thread_flag(TIF_SYSCALL_TRACE))
 		tracehook_report_syscall(regs, PTRACE_SYSCALL_ENTER);
@@ -1172,11 +1270,16 @@ asmlinkage int syscall_trace_enter(struct pt_regs *regs)
 			regs->regs[0] = -ENOSYS;
 	}
 
+	audit_syscall_entry(syscall_get_arch(), regs->syscallno,
+		regs->orig_x0, regs->regs[1], regs->regs[2], regs->regs[3]);
+
 	return regs->syscallno;
 }
 
 asmlinkage void syscall_trace_exit(struct pt_regs *regs)
 {
+	audit_syscall_exit(regs);
+
 	if (test_thread_flag(TIF_SYSCALL_TRACEPOINT))
 		trace_sys_exit(regs, regs_return_value(regs));
 

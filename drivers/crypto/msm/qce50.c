@@ -783,6 +783,11 @@ static int _ce_setup_cipher(struct qce_device *pce_dev, struct qce_req *creq,
 		break;
 	case CIPHER_ALG_3DES:
 		if (creq->mode !=  QCE_MODE_ECB) {
+			if (ivsize > MAX_IV_LENGTH) {
+				pr_err("%s: error: Invalid length parameter\n",
+					 __func__);
+				return -EINVAL;
+			}
 			_byte_stream_to_net_words(enciv32, creq->iv, ivsize);
 			pce = cmdlistinfo->encr_cntr_iv;
 			pce->data = enciv32[0];
@@ -831,6 +836,11 @@ static int _ce_setup_cipher(struct qce_device *pce_dev, struct qce_req *creq,
 			}
 		}
 		if (creq->mode !=  QCE_MODE_ECB) {
+			if (ivsize > MAX_IV_LENGTH) {
+				pr_err("%s: error: Invalid length parameter\n",
+					 __func__);
+				return -EINVAL;
+			}
 			if (creq->mode ==  QCE_MODE_XTS)
 				_byte_stream_swap_to_net_words(enciv32,
 							creq->iv, ivsize);
@@ -2055,6 +2065,10 @@ static int _sha_complete(struct qce_device *pce_dev)
 	uint32_t status;
 
 	areq = (struct ahash_request *) pce_dev->areq;
+	if (!areq) {
+		pr_err("sha operation error. areq is NULL\n");
+		return -ENXIO;
+	}
 	qce_dma_unmap_sg(pce_dev->pdev, areq->src, pce_dev->src_nents,
 				DMA_TO_DEVICE);
 	memcpy(digest, (char *)(&pce_dev->ce_sps.result->auth_iv[0]),
@@ -4771,7 +4785,7 @@ int qce_ablk_cipher_req(void *handle, struct qce_req *c_req)
 	rc = _qce_sps_transfer(pce_dev);
 	if (rc)
 		goto bad;
-		return 0;
+	return 0;
 bad:
 	if (areq->src != areq->dst) {
 		if (pce_dev->dst_nents) {
@@ -4845,7 +4859,7 @@ int qce_process_sha_req(void *handle, struct qce_sha_req *sreq)
 	rc = _qce_sps_transfer(pce_dev);
 	if (rc)
 		goto bad;
-		return 0;
+	return 0;
 bad:
 	if (pce_dev->src_nents) {
 		qce_dma_unmap_sg(pce_dev->pdev, sreq->src,
@@ -5310,12 +5324,14 @@ static int __qce_init_clk(struct qce_device *pce_dev)
 	return rc;
 
 exit_put_iface_clk:
-	clk_put(pce_dev->ce_clk);
+	if (pce_dev->ce_clk)
+		clk_put(pce_dev->ce_clk);
 exit_put_core_clk:
 	if (pce_dev->ce_core_clk)
 		clk_put(pce_dev->ce_core_clk);
 exit_put_core_src_clk:
-	clk_put(pce_dev->ce_core_src_clk);
+	if (pce_dev->ce_core_src_clk)
+		clk_put(pce_dev->ce_core_src_clk);
 	pr_err("Unable to init CE clks, rc = %d\n", rc);
 	return rc;
 }
@@ -5337,16 +5353,23 @@ int qce_enable_clk(void *handle)
 	struct qce_device *pce_dev = (struct qce_device *)handle;
 	int rc = 0;
 
-	if (pce_dev->support_only_core_src_clk) {
-		if (pce_dev->ce_core_src_clk)
-			rc = clk_prepare_enable(pce_dev->ce_core_src_clk);
-	} else {
-		if (pce_dev->ce_core_clk)
-			rc = clk_prepare_enable(pce_dev->ce_core_clk);
+	if (pce_dev->ce_core_src_clk) {
+		rc = clk_prepare_enable(pce_dev->ce_core_src_clk);
+		if (rc) {
+			pr_err("Unable to enable/prepare CE core src clk\n");
+			return rc;
+		}
 	}
-	if (rc) {
-		pr_err("Unable to enable/prepare CE core clk\n");
+
+	if (pce_dev->support_only_core_src_clk)
 		return rc;
+
+	if (pce_dev->ce_core_clk) {
+		rc = clk_prepare_enable(pce_dev->ce_core_clk);
+		if (rc) {
+			pr_err("Unable to enable/prepare CE core clk\n");
+			goto exit_disable_core_src_clk;
+		}
 	}
 
 	if (pce_dev->ce_clk) {
@@ -5367,12 +5390,14 @@ int qce_enable_clk(void *handle)
 	return rc;
 
 exit_disable_ce_clk:
-	clk_disable_unprepare(pce_dev->ce_clk);
+	if (pce_dev->ce_clk)
+		clk_disable_unprepare(pce_dev->ce_clk);
 exit_disable_core_clk:
-	if (pce_dev->support_only_core_src_clk)
-		clk_disable_unprepare(pce_dev->ce_core_src_clk);
-	else
+	if (pce_dev->ce_core_clk)
 		clk_disable_unprepare(pce_dev->ce_core_clk);
+exit_disable_core_src_clk:
+	if (pce_dev->ce_core_src_clk)
+		clk_disable_unprepare(pce_dev->ce_core_src_clk);
 	return rc;
 }
 EXPORT_SYMBOL(qce_enable_clk);
@@ -5386,13 +5411,10 @@ int qce_disable_clk(void *handle)
 		clk_disable_unprepare(pce_dev->ce_bus_clk);
 	if (pce_dev->ce_clk)
 		clk_disable_unprepare(pce_dev->ce_clk);
-	if (pce_dev->support_only_core_src_clk) {
-		if (pce_dev->ce_core_src_clk)
-			clk_disable_unprepare(pce_dev->ce_core_src_clk);
-	} else {
-		if (pce_dev->ce_core_clk)
-			clk_disable_unprepare(pce_dev->ce_core_clk);
-	}
+	if (pce_dev->ce_core_clk)
+		clk_disable_unprepare(pce_dev->ce_core_clk);
+	if (pce_dev->ce_core_src_clk)
+		clk_disable_unprepare(pce_dev->ce_core_src_clk);
 
 	return rc;
 }

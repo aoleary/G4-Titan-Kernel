@@ -258,9 +258,9 @@ struct buffer_info *get_registered_buf(struct msm_vidc_inst *inst,
 	list_for_each_entry(temp, &inst->registeredbufs.list, list) {
 		for (i = 0; (i < temp->num_planes)
 			&& (i < VIDEO_MAX_PLANES); i++) {
-                        bool ion_hndl_matches =
-                                msm_smem_compare_buffers(inst->mem_client, fd,
-                                temp->handle[i]->smem_priv);
+			bool ion_hndl_matches = temp->handle[i] ?
+						msm_smem_compare_buffers(inst->mem_client, fd,
+						temp->handle[i]->smem_priv) : false;
 			if (temp &&
 				(ion_hndl_matches ||
 				(device_addr == temp->device_addr[i])) &&
@@ -1291,7 +1291,7 @@ void *msm_vidc_open(int core_id, int session_type)
 		goto err_invalid_core;
 	}
 
-	pr_info(VIDC_DBG_TAG "Opening video instance: %pK, %d\n",
+	pr_debug(VIDC_DBG_TAG "Opening video instance: %pK, %d\n",
 		VIDC_MSG_PRIO2STRING(VIDC_INFO), inst, session_type);
 	mutex_init(&inst->sync_lock);
 	mutex_init(&inst->bufq[CAPTURE_PORT].lock);
@@ -1422,7 +1422,6 @@ static void cleanup_instance(struct msm_vidc_inst *inst)
 			msm_comm_smem_free(inst, inst->extradata_handle);
 
 		debugfs_remove_recursive(inst->debugfs_root);
-
 		mutex_lock(&inst->pending_getpropq.lock);
 		WARN_ON(!list_empty(&inst->pending_getpropq.list)
 			&& (msm_vidc_debug & VIDC_INFO));
@@ -1490,7 +1489,7 @@ int msm_vidc_close(void *instance)
 
 	msm_smem_delete_client(inst->mem_client);
 
-	pr_info(VIDC_DBG_TAG "Closed video instance: %pK\n",
+	pr_debug(VIDC_DBG_TAG "Closed video instance: %pK\n",
 			VIDC_MSG_PRIO2STRING(VIDC_INFO), inst);
 	kfree(inst);
 
@@ -1503,4 +1502,3 @@ int msm_vidc_suspend(int core_id)
 	return msm_comm_suspend(core_id);
 }
 EXPORT_SYMBOL(msm_vidc_suspend);
-

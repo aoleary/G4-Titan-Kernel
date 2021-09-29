@@ -369,6 +369,9 @@ static void pm_dev_err(struct device *dev, pm_message_t state, char *info,
 {
 	printk(KERN_ERR "PM: Device %s failed to %s%s: error %d\n",
 		dev_name(dev), pm_verb(state.event), info, error);
+	if (state.event == PM_EVENT_SUSPEND)
+		log_suspend_abort_reason("PM: Device %s failed to %s%s\n",
+				dev_name(dev), pm_verb(state.event), info);
 }
 
 #if defined(CONFIG_MACH_LGE)
@@ -411,7 +414,7 @@ static void dpm_show_time(ktime_t starttime, pm_message_t state, char *info)
 	usecs = usecs64;
 	if (usecs == 0)
 		usecs = 1;
-	pr_info("PM: %s%s%s of devices complete after %ld.%03ld msecs\n",
+	pr_debug("PM: %s%s%s of devices complete after %ld.%03ld msecs\n",
 		info ?: "", info ? " " : "", pm_verb(state.event),
 		usecs / USEC_PER_MSEC, usecs % USEC_PER_MSEC);
 

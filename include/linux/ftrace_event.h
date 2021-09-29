@@ -36,6 +36,9 @@ const char *ftrace_print_symbols_seq_u64(struct trace_seq *p,
 								 *symbol_array);
 #endif
 
+const char *ftrace_print_bitmask_seq(struct trace_seq *p, void *bitmask_ptr,
+				     unsigned int bitmask_size);
+
 const char *ftrace_print_hex_seq(struct trace_seq *p,
 				 const unsigned char *buf, int len);
 
@@ -368,7 +371,7 @@ extern int  ftrace_profile_set_filter(struct perf_event *event, int event_id,
 				     char *filter_str);
 extern void ftrace_profile_free_filter(struct perf_event *event);
 extern void *perf_trace_buf_prepare(int size, unsigned short type,
-				    struct pt_regs *regs, int *rctxp);
+				    struct pt_regs **regs, int *rctxp);
 
 static inline void
 perf_trace_buf_submit(void *raw_data, int size, int rctx, u64 addr,

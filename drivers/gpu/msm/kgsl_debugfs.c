@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2008-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2008-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -120,17 +120,21 @@ static void print_mem_entry(struct seq_file *s, struct kgsl_mem_entry *entry)
 	flags[2] = get_alignflag(m);
 	flags[3] = get_cacheflag(m);
 	flags[4] = kgsl_memdesc_use_cpu_map(m) ? 'p' : '-';
-	flags[5] = (m->useraddr) ? 'Y' : 'N';
+	/*
+	 * Show Y if at least one vma has this entry
+	 * mapped (could be multiple)
+	 */
+	flags[5] = atomic_read(&entry->map_count) ? 'Y' : 'N';
 	flags[6] = '\0';
 
 	kgsl_get_memory_usage(usage, sizeof(usage), m->flags);
 
-	seq_printf(s, "%pK %pK %8zd %5d %6s %10s %16s %5d\n",
+	seq_printf(s, "%pK %d %8zd %5d %6s %10s %16s %5d %16d\n",
 			(unsigned long *)(uintptr_t) m->gpuaddr,
-			(unsigned long *) m->useraddr,
-			m->size, entry->id, flags,
+			0, m->size, entry->id, flags,
 			memtype_str(kgsl_memdesc_usermem_type(m)),
-			usage, m->sglen);
+			usage, m->sglen,
+			atomic_read(&entry->map_count));
 }
 
 static int process_mem_print(struct seq_file *s, void *unused)
@@ -140,9 +144,9 @@ static int process_mem_print(struct seq_file *s, void *unused)
 	struct kgsl_process_private *private = s->private;
 	int next = 0;
 
-	seq_printf(s, "%8s %8s %8s %5s %6s %10s %16s %5s\n",
+	seq_printf(s, "%16s %16s %16s %5s %8s %10s %16s %5s %16s\n",
 		   "gpuaddr", "useraddr", "size", "id", "flags", "type",
-		   "usage", "sglen");
+		   "usage", "sglen", "mapcount");
 
 	/* print all entries with a GPU address */
 	spin_lock(&private->mem_lock);
@@ -208,48 +212,42 @@ static const struct file_operations process_mem_fops = {
  * kgsl_process_init_debugfs() - Initialize debugfs for a process
  * @private: Pointer to process private structure created for the process
  *
- * @returns: 0 on success, error code otherwise
- *
  * kgsl_process_init_debugfs() is called at the time of creating the
  * process struct when a process opens kgsl device for the first time.
- * The function creates the debugfs files for the process. If debugfs is
- * disabled in the kernel, we ignore that error and return as successful.
+ * This function is not fatal - all we do is print a warning message if
+ * the files can't be created
  */
-int
-kgsl_process_init_debugfs(struct kgsl_process_private *private)
+void kgsl_process_init_debugfs(struct kgsl_process_private *private)
 {
 	unsigned char name[16];
-	int ret = 0;
 	struct dentry *dentry;
 
-	snprintf(name, sizeof(name), "%d", private->pid);
+	snprintf(name, sizeof(name), "%d", pid_nr(private->pid));
 
 	private->debug_root = debugfs_create_dir(name, proc_d_debugfs);
 
-	if (!private->debug_root)
-		return -EINVAL;
-
 	/*
-	 * debugfs_create_dir() and debugfs_create_file() both
-	 * return -ENODEV if debugfs is disabled in the kernel.
-	 * We make a distinction between these two functions
-	 * failing and debugfs being disabled in the kernel.
-	 * In the first case, we abort process private struct
-	 * creation, in the second we continue without any changes.
-	 * So if debugfs is disabled in kernel, return as
-	 * success.
+	 * Both debugfs_create_dir() and debugfs_create_file() return
+	 * ERR_PTR(-ENODEV) if debugfs is disabled in the kernel but return
+	 * NULL on error when it is enabled. For both usages we need to check
+	 * for ERROR or NULL and only print a warning on an actual failure
+	 * (i.e. - when the return value is NULL)
 	 */
-	dentry = debugfs_create_file("mem", 0444, private->debug_root,
-		(void *) ((unsigned long) private->pid), &process_mem_fops);
 
-	if (IS_ERR(dentry)) {
-		ret = PTR_ERR(dentry);
-
-		if (ret == -ENODEV)
-			ret = 0;
+	if (IS_ERR_OR_NULL(private->debug_root)) {
+		WARN((private->debug_root == NULL),
+			"Unable to create debugfs dir for %s\n", name);
+		private->debug_root = NULL;
+		return;
 	}
 
-	return ret;
+	dentry = debugfs_create_file("mem", 0444, private->debug_root,
+		(void *) ((unsigned long) pid_nr(private->pid)),
+		&process_mem_fops);
+
+	if (IS_ERR_OR_NULL(dentry))
+		WARN((dentry == NULL),
+			"Unable to create 'mem' file for %s\n", name);
 }
 
 void kgsl_core_debugfs_init(void)

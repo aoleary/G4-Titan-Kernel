@@ -19,6 +19,7 @@
 #include <linux/regulator/consumer.h>
 #include "./mh1/msm_mh1.h" /* LGE_CHANGE, fixed build error , 2016-1-27, soojong.jin@lge.com */
 #include <soc/qcom/lge/board_lge.h>	//to use lge_get_board_revno()
+#include <linux/qpnp/qpnp-haptic.h>
 
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
@@ -489,6 +490,9 @@ int msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 		return -EINVAL;
 	}
 	pr_err("%s for %s\n", __func__, s_ctrl->sensordata->sensor_name);
+
+	qpnp_enable_haptics();
+
 	return msm_camera_power_down(power_info, sensor_device_type,
 		sensor_i2c_client);
 }
@@ -540,6 +544,10 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 		}
 	}
 	pr_err("%s for %s\n", __func__, s_ctrl->sensordata->sensor_name);
+
+	if (!rc)
+		qpnp_disable_haptics();
+
 	return rc;
 }
 
