@@ -575,10 +575,36 @@ ARCH_AFLAGS :=
 ARCH_CFLAGS :=
 include arch/$(SRCARCH)/Makefile
 
+GC_FLAGS += -O3 -mcpu=cortex-a57.cortex-a53+crypto+crc
+CL_FLAGS += -O3 -mcpu=cortex-a53+crypto+crc
+
+export GC_FLAGS
+export CL_FLAGS
+
+ifeq ($(cc-name),gcc)
+KBUILD_CFLAGS  += $(GC_FLAGS)
+KBUILD_AFLAGS  += $(GC_FLAGS)
+KBUILD_LDFLAGS += $(GC_FLAGS)
+endif
+ifeq ($(cc-name),clang)
+KBUILD_CFLAGS  += $(CL_FLAGS)
+KBUILD_AFLAGS  += $(CL_FLAGS)
+KBUILD_LDFLAGS += $(CL_FLAGS)
+endif
+
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= -Os $(call cc-disable-warning,maybe-uninitialized,)
 else
-KBUILD_CFLAGS   += -O3
+ifeq ($(cc-name),gcc)
+KBUILD_CFLAGS	+= $(GC_FLAGS)
+KBUILD_AFLAGS   += $(GC_FLAGS)
+KBUILD_LDFLAGS  += $(GC_FLAGS)
+endif
+ifeq ($(cc-name),clang)
+KBUILD_CFLAGS	+= $(CL_FLAGS)
+KBUILD_AFLAGS   += $(CL_FLAGS)
+KBUILD_LDFLAGS  += $(CL_FLAGS)
+endif
 endif
 
 ifdef CONFIG_READABLE_ASM
@@ -622,7 +648,7 @@ KBUILD_CFLAGS += $(call cc-disable-warning, unused-but-set-variable)
 
 # Set --lto-O3 LLD linker flag when building with clang LTO
 ifeq ($(ld-name),lld)
-LDFLAGS += --lto-O3
+LDFLAGS += --lto-O3 --strip-debug
 endif
 
 ifdef CONFIG_FRAME_POINTER
