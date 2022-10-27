@@ -429,7 +429,7 @@ static void cpuboost_input_event(struct input_handle *handle,
 {
 	u64 now;
 
-	if (!input_boost_enabled)
+	if (!input_boost_enabled || is_battery_saver_on())
 		return;
 
 	if (multi_boost_enabled) {
