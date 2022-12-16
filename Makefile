@@ -687,6 +687,16 @@ KBUILD_CFLAGS += $(call cc-disable-warning, error=bool-compare)
 KBUILD_CFLAGS += $(call cc-disable-warning, error=format-truncation)
 KBUILD_CFLAGS += $(call cc-disable-warning, error=switch-unreachable)
 
+# silence a few warnings
+KBUILD_CFLAGS	+= $(call cc-disable-warning,frame-address,)
+KBUILD_CFLAGS	+= $(call cc-disable-warning, format-truncation)
+KBUILD_CFLAGS	+= $(call cc-disable-warning, format-overflow)
+KBUILD_CFLAGS	+= $(call cc-disable-warning, int-in-bool-context)
+KBUILD_CFLAGS	+= $(call cc-disable-warning, address-of-packed-member)
+KBUILD_CFLAGS	+= $(call cc-disable-warning, attribute-alias)
+KBUILD_CFLAGS   += $(call cc-disable-warning, void-ptr-dereference)
+KBUILD_CFLAGS   += $(call cc-disable-warning, enum-conversion)
+
 # conserve stack if available
 KBUILD_CFLAGS   += $(call cc-option,-fconserve-stack)
 
