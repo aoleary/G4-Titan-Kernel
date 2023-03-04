@@ -92,14 +92,6 @@ static DEFINE_MUTEX(cgroup_mutex);
 static DEFINE_MUTEX(cgroup_root_mutex);
 
 /*
- * cgroup destruction makes heavy use of work items and there can be a lot
- * of concurrent destructions.  Use a separate workqueue so that cgroup
- * destruction work items don't end up filling up max_active of system_wq
- * which may lead to deadlock.
- */
-static struct workqueue_struct *cgroup_destroy_wq;
-
-/*
  * Generate an array of cgroup subsystem pointers. At boot time, this is
  * populated with the built in subsystems, and modular subsystems are
  * registered after that. The mutable section of this array is protected by
@@ -883,7 +875,7 @@ static void cgroup_free_rcu(struct rcu_head *head)
 {
 	struct cgroup *cgrp = container_of(head, struct cgroup, rcu_head);
 
-	queue_work(cgroup_destroy_wq, &cgrp->free_work);
+	schedule_work(&cgrp->free_work);
 }
 
 static void cgroup_diput(struct dentry *dentry, struct inode *inode)
@@ -5172,7 +5164,7 @@ void __css_put(struct cgroup_subsys_state *css)
 
 	v = css_unbias_refcnt(atomic_dec_return(&css->refcnt));
 	if (v == 0)
-		queue_work(cgroup_destroy_wq, &css->dput_work);
+		schedule_work(&css->dput_work);
 }
 EXPORT_SYMBOL_GPL(__css_put);
 
