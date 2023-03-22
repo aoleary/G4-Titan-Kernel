@@ -678,6 +678,15 @@ KBUILD_CFLAGS += $(call cc-disable-warning, pointer-sign)
 # disable invalid "can't wrap" optimizations for signed / pointers
 KBUILD_CFLAGS	+= $(call cc-option,-fno-strict-overflow)
 
+# disable -Werror on GCC 10+
+KBUILD_CFLAGS += $(call cc-disable-warning, error=misleading-indentation)
+KBUILD_CFLAGS += $(call cc-disable-warning, error=address-of-packed-member)
+KBUILD_CFLAGS += $(call cc-disable-warning, error=unused-const-variable)
+KBUILD_CFLAGS += $(call cc-disable-warning, error=array-bounds)
+KBUILD_CFLAGS += $(call cc-disable-warning, error=bool-compare)
+KBUILD_CFLAGS += $(call cc-disable-warning, error=format-truncation)
+KBUILD_CFLAGS += $(call cc-disable-warning, error=switch-unreachable)
+
 # conserve stack if available
 KBUILD_CFLAGS   += $(call cc-option,-fconserve-stack)
 
