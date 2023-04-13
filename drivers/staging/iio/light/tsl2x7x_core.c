@@ -301,6 +301,7 @@ static const u8 device_channel_config[] = {
 static int
 tsl2x7x_i2c_read(struct i2c_client *client, u8 reg, u8 *val)
 {
+pr_info("%s: started\n", __func__);
 	int ret = 0;
 
 	/* select register to write */
@@ -320,6 +321,7 @@ tsl2x7x_i2c_read(struct i2c_client *client, u8 reg, u8 *val)
 						, __func__, reg);
 
 	return ret;
+	pr_info("%s: stopped\n", __func__);
 }
 
 /**
@@ -339,6 +341,7 @@ tsl2x7x_i2c_read(struct i2c_client *client, u8 reg, u8 *val)
  */
 static int tsl2x7x_get_lux(struct iio_dev *indio_dev)
 {
+pr_info("%s: started\n", __func__);
 	u16 ch0, ch1; /* separated ch0/ch1 data from device */
 	u32 lux; /* raw lux calculated from device data */
 	u64 lux64;
@@ -473,6 +476,7 @@ out_unlock:
 	mutex_unlock(&chip->als_mutex);
 
 	return ret;
+pr_info("%s: stopped\n", __func__);
 }
 
 /**
@@ -483,6 +487,7 @@ out_unlock:
  */
 static int tsl2x7x_get_prox(struct iio_dev *indio_dev)
 {
+pr_info("%s: started\n", __func__);
 	int i;
 	int ret;
 	u8 status;
@@ -538,6 +543,7 @@ prox_poll_err:
 	mutex_unlock(&chip->prox_mutex);
 
 	return chip->prox_data;
+pr_info("%s: stopped\n", __func__);
 }
 
 /**
@@ -549,6 +555,7 @@ prox_poll_err:
  */
 static void tsl2x7x_defaults(struct tsl2X7X_chip *chip)
 {
+pr_info("%s: started\n", __func__);
 	/* If Operational settings defined elsewhere.. */
 	if (chip->pdata && chip->pdata->platform_default_settings != 0)
 		memcpy(&(chip->tsl2x7x_settings),
@@ -568,6 +575,7 @@ static void tsl2x7x_defaults(struct tsl2X7X_chip *chip)
 		memcpy(chip->tsl2x7x_device_lux,
 		(struct tsl2x7x_lux *)tsl2x7x_default_lux_table_group[chip->id],
 				MAX_DEFAULT_TABLE_BYTES);
+pr_info("%s: stopped\n", __func__);
 }
 
 /**
@@ -578,6 +586,7 @@ static void tsl2x7x_defaults(struct tsl2X7X_chip *chip)
  */
 static int tsl2x7x_als_calibrate(struct iio_dev *indio_dev)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 	u8 reg_val;
 	int gain_trim_val;
@@ -634,10 +643,12 @@ static int tsl2x7x_als_calibrate(struct iio_dev *indio_dev)
 		"%s als_calibrate completed\n", chip->client->name);
 
 	return (int) gain_trim_val;
+pr_info("%s: stopped\n", __func__);
 }
 
 static int tsl2x7x_chip_on(struct iio_dev *indio_dev)
 {
+pr_info("%s: started\n", __func__);
 	int i;
 	int ret = 0;
 	u8 *dev_reg;
@@ -776,10 +787,12 @@ static int tsl2x7x_chip_on(struct iio_dev *indio_dev)
 	}
 
 	return ret;
+pr_info("%s: stopped\n", __func__);
 }
 
 static int tsl2x7x_chip_off(struct iio_dev *indio_dev)
 {
+pr_info("%s: started\n", __func__);
 	int ret;
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 
@@ -793,6 +806,7 @@ static int tsl2x7x_chip_off(struct iio_dev *indio_dev)
 		chip->pdata->power_off(chip->client);
 
 	return ret;
+pr_info("%s: stopped\n", __func__);
 }
 
 /**
@@ -808,6 +822,7 @@ static int tsl2x7x_chip_off(struct iio_dev *indio_dev)
 static
 int tsl2x7x_invoke_change(struct iio_dev *indio_dev)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 	int device_status = chip->tsl2x7x_chip_status;
 
@@ -826,12 +841,14 @@ int tsl2x7x_invoke_change(struct iio_dev *indio_dev)
 	mutex_unlock(&chip->als_mutex);
 
 	return 0;
+pr_info("%s: stopped\n", __func__);
 }
 
 static
 void tsl2x7x_prox_calculate(int *data, int length,
 		struct tsl2x7x_prox_stat *statP)
 {
+pr_info("%s: started\n", __func__);
 	int i;
 	int sample_sum;
 	int tmp;
@@ -855,6 +872,7 @@ void tsl2x7x_prox_calculate(int *data, int length,
 		sample_sum += tmp * tmp;
 	}
 	statP->stddev = int_sqrt((long)sample_sum)/length;
+pr_info("%s: stopped\n", __func__);
 }
 
 /**
@@ -866,6 +884,7 @@ void tsl2x7x_prox_calculate(int *data, int length,
  */
 static void tsl2x7x_prox_cal(struct iio_dev *indio_dev)
 {
+pr_info("%s: started\n", __func__);
 	int prox_history[MAX_SAMPLES_CAL + 1];
 	int i;
 	struct tsl2x7x_prox_stat prox_stat_data[2];
@@ -916,19 +935,23 @@ static void tsl2x7x_prox_cal(struct iio_dev *indio_dev)
 	chip->tsl2x7x_settings.interrupts_en = tmp_irq_settings;
 	if (current_state == TSL2X7X_CHIP_WORKING)
 		tsl2x7x_chip_on(indio_dev);
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_power_state_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(dev_to_iio_dev(dev));
 
 	return snprintf(buf, PAGE_SIZE, "%d\n", chip->tsl2x7x_chip_status);
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_power_state_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t len)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	bool value;
 
@@ -941,11 +964,13 @@ static ssize_t tsl2x7x_power_state_store(struct device *dev,
 		tsl2x7x_chip_off(indio_dev);
 
 	return len;
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_gain_available_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(dev_to_iio_dev(dev));
 
 	switch (chip->id) {
@@ -959,17 +984,21 @@ static ssize_t tsl2x7x_gain_available_show(struct device *dev,
 	}
 
 	return snprintf(buf, PAGE_SIZE, "%s\n", "1 8 16 120");
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_prox_gain_available_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+pr_info("%s: started\n", __func__);
 		return snprintf(buf, PAGE_SIZE, "%s\n", "1 2 4 8");
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_als_time_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(dev_to_iio_dev(dev));
 	int y, z;
 
@@ -979,11 +1008,13 @@ static ssize_t tsl2x7x_als_time_show(struct device *dev,
 	z %= 1000;
 
 	return snprintf(buf, PAGE_SIZE, "%d.%03d\n", y, z);
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_als_time_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t len)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 	struct tsl2x7x_parse_result result;
@@ -1003,6 +1034,7 @@ static ssize_t tsl2x7x_als_time_store(struct device *dev,
 	tsl2x7x_invoke_change(indio_dev);
 
 	return IIO_VAL_INT_PLUS_MICRO;
+pr_info("%s: stopped\n", __func__);
 }
 
 static IIO_CONST_ATTR(in_illuminance0_integration_time_available,
@@ -1011,15 +1043,18 @@ static IIO_CONST_ATTR(in_illuminance0_integration_time_available,
 static ssize_t tsl2x7x_als_cal_target_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(dev_to_iio_dev(dev));
 
 	return snprintf(buf, PAGE_SIZE, "%d\n",
 			chip->tsl2x7x_settings.als_cal_target);
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_als_cal_target_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t len)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 	unsigned long value;
@@ -1033,12 +1068,14 @@ static ssize_t tsl2x7x_als_cal_target_store(struct device *dev,
 	tsl2x7x_invoke_change(indio_dev);
 
 	return len;
+pr_info("%s: stopped\n", __func__);
 }
 
 /* persistence settings */
 static ssize_t tsl2x7x_als_persistence_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(dev_to_iio_dev(dev));
 	int y, z, filter_delay;
 
@@ -1050,11 +1087,13 @@ static ssize_t tsl2x7x_als_persistence_show(struct device *dev,
 	z = (filter_delay % 1000);
 
 	return snprintf(buf, PAGE_SIZE, "%d.%03d\n", y, z);
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_als_persistence_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t len)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 	struct tsl2x7x_parse_result result;
@@ -1080,11 +1119,13 @@ static ssize_t tsl2x7x_als_persistence_store(struct device *dev,
 	tsl2x7x_invoke_change(indio_dev);
 
 	return IIO_VAL_INT_PLUS_MICRO;
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_prox_persistence_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(dev_to_iio_dev(dev));
 	int y, z, filter_delay;
 
@@ -1096,11 +1137,13 @@ static ssize_t tsl2x7x_prox_persistence_show(struct device *dev,
 	z = (filter_delay % 1000);
 
 	return snprintf(buf, PAGE_SIZE, "%d.%03d\n", y, z);
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_prox_persistence_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t len)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 	struct tsl2x7x_parse_result result;
@@ -1126,11 +1169,13 @@ static ssize_t tsl2x7x_prox_persistence_store(struct device *dev,
 	tsl2x7x_invoke_change(indio_dev);
 
 	return IIO_VAL_INT_PLUS_MICRO;
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_do_calibrate(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t len)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	bool value;
 
@@ -1143,11 +1188,13 @@ static ssize_t tsl2x7x_do_calibrate(struct device *dev,
 	tsl2x7x_invoke_change(indio_dev);
 
 	return len;
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_luxtable_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(dev_to_iio_dev(dev));
 	int i = 0;
 	int offset = 0;
@@ -1168,11 +1215,13 @@ static ssize_t tsl2x7x_luxtable_show(struct device *dev,
 
 	offset += snprintf(buf + offset, PAGE_SIZE, "\n");
 	return offset;
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_luxtable_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t len)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 	int value[ARRAY_SIZE(chip->tsl2x7x_device_lux)*3 + 1];
@@ -1207,11 +1256,13 @@ static ssize_t tsl2x7x_luxtable_store(struct device *dev,
 	tsl2x7x_invoke_change(indio_dev);
 
 	return len;
+pr_info("%s: stopped\n", __func__);
 }
 
 static ssize_t tsl2x7x_do_prox_calibrate(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t len)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
 	bool value;
 
@@ -1224,11 +1275,13 @@ static ssize_t tsl2x7x_do_prox_calibrate(struct device *dev,
 	tsl2x7x_invoke_change(indio_dev);
 
 	return len;
+pr_info("%s: stopped\n", __func__);
 }
 
 static int tsl2x7x_read_interrupt_config(struct iio_dev *indio_dev,
 					 u64 event_code)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 	int ret;
 
@@ -1238,12 +1291,14 @@ static int tsl2x7x_read_interrupt_config(struct iio_dev *indio_dev,
 		ret = !!(chip->tsl2x7x_settings.interrupts_en & 0x20);
 
 	return ret;
+pr_info("%s: stopped\n", __func__);
 }
 
 static int tsl2x7x_write_interrupt_config(struct iio_dev *indio_dev,
 					  u64 event_code,
 					  int val)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 
 	if (IIO_EVENT_CODE_EXTRACT_CHAN_TYPE(event_code) == IIO_INTENSITY) {
@@ -1261,12 +1316,14 @@ static int tsl2x7x_write_interrupt_config(struct iio_dev *indio_dev,
 	tsl2x7x_invoke_change(indio_dev);
 
 	return 0;
+pr_info("%s: stopped\n", __func__);
 }
 
 static int tsl2x7x_write_thresh(struct iio_dev *indio_dev,
 				  u64 event_code,
 				  int val)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 
 	if (IIO_EVENT_CODE_EXTRACT_CHAN_TYPE(event_code) == IIO_INTENSITY) {
@@ -1296,12 +1353,14 @@ static int tsl2x7x_write_thresh(struct iio_dev *indio_dev,
 	tsl2x7x_invoke_change(indio_dev);
 
 	return 0;
+pr_info("%s: stopped\n", __func__);
 }
 
 static int tsl2x7x_read_thresh(struct iio_dev *indio_dev,
 			       u64 event_code,
 			       int *val)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 
 	if (IIO_EVENT_CODE_EXTRACT_CHAN_TYPE(event_code) == IIO_INTENSITY) {
@@ -1329,6 +1388,7 @@ static int tsl2x7x_read_thresh(struct iio_dev *indio_dev,
 	}
 
 	return 0;
+pr_info("%s: stopped\n", __func__);
 }
 
 static int tsl2x7x_read_raw(struct iio_dev *indio_dev,
@@ -1337,6 +1397,7 @@ static int tsl2x7x_read_raw(struct iio_dev *indio_dev,
 			    int *val2,
 			    long mask)
 {
+pr_info("%s: started\n", __func__);
 	int ret = -EINVAL;
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 
@@ -1392,6 +1453,7 @@ static int tsl2x7x_read_raw(struct iio_dev *indio_dev,
 	}
 
 	return ret;
+pr_info("%s: stopped\n", __func__);
 }
 
 static int tsl2x7x_write_raw(struct iio_dev *indio_dev,
@@ -1400,6 +1462,7 @@ static int tsl2x7x_write_raw(struct iio_dev *indio_dev,
 			       int val2,
 			       long mask)
 {
+pr_info("%s: started\n", __func__);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 
 	switch (mask) {
@@ -1472,6 +1535,7 @@ static int tsl2x7x_write_raw(struct iio_dev *indio_dev,
 	tsl2x7x_invoke_change(indio_dev);
 
 	return 0;
+pr_info("%s: stopped\n", __func__);
 }
 
 static DEVICE_ATTR(power_state, S_IRUGO | S_IWUSR,
@@ -1507,6 +1571,7 @@ static DEVICE_ATTR(in_proximity0_thresh_period, S_IRUGO | S_IWUSR,
 /* Use the default register values to identify the Taos device */
 static int tsl2x7x_device_id(unsigned char *id, int target)
 {
+pr_info("%s: started\n", __func__);
 	switch (target) {
 	case tsl2571:
 	case tsl2671:
@@ -1527,10 +1592,12 @@ static int tsl2x7x_device_id(unsigned char *id, int target)
 	}
 
 	return -EINVAL;
+pr_info("%s: stopped\n", __func__);
 }
 
 static irqreturn_t tsl2x7x_event_handler(int irq, void *private)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = private;
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 	s64 timestamp = iio_get_time_ns();
@@ -1570,9 +1637,11 @@ static irqreturn_t tsl2x7x_event_handler(int irq, void *private)
 			__func__, ret);
 
 	return IRQ_HANDLED;
+pr_info("%s: stopped\n", __func__);
 }
 
 static struct attribute *tsl2x7x_ALS_device_attrs[] = {
+pr_info("%s: started\n", __func__);
 	&dev_attr_power_state.attr,
 	&dev_attr_in_illuminance0_calibscale_available.attr,
 	&dev_attr_in_illuminance0_integration_time.attr,
@@ -1582,15 +1651,19 @@ static struct attribute *tsl2x7x_ALS_device_attrs[] = {
 	&dev_attr_in_illuminance0_calibrate.attr,
 	&dev_attr_in_illuminance0_lux_table.attr,
 	NULL
+pr_info("%s: stopped\n", __func__);
 };
 
 static struct attribute *tsl2x7x_PRX_device_attrs[] = {
+pr_info("%s: started\n", __func__);
 	&dev_attr_power_state.attr,
 	&dev_attr_in_proximity0_calibrate.attr,
 	NULL
+pr_info("%s: stopped\n", __func__);
 };
 
 static struct attribute *tsl2x7x_ALSPRX_device_attrs[] = {
+pr_info("%s: started\n", __func__);
 	&dev_attr_power_state.attr,
 	&dev_attr_in_illuminance0_calibscale_available.attr,
 	&dev_attr_in_illuminance0_integration_time.attr,
@@ -1601,16 +1674,20 @@ static struct attribute *tsl2x7x_ALSPRX_device_attrs[] = {
 	&dev_attr_in_illuminance0_lux_table.attr,
 	&dev_attr_in_proximity0_calibrate.attr,
 	NULL
+pr_info("%s: stopped\n", __func__);
 };
 
 static struct attribute *tsl2x7x_PRX2_device_attrs[] = {
+pr_info("%s: started\n", __func__);
 	&dev_attr_power_state.attr,
 	&dev_attr_in_proximity0_calibrate.attr,
 	&dev_attr_in_proximity0_calibscale_available.attr,
 	NULL
+pr_info("%s: stopped\n", __func__);
 };
 
 static struct attribute *tsl2x7x_ALSPRX2_device_attrs[] = {
+pr_info("%s: started\n", __func__);
 	&dev_attr_power_state.attr,
 	&dev_attr_in_illuminance0_calibscale_available.attr,
 	&dev_attr_in_illuminance0_integration_time.attr,
@@ -1622,24 +1699,32 @@ static struct attribute *tsl2x7x_ALSPRX2_device_attrs[] = {
 	&dev_attr_in_proximity0_calibrate.attr,
 	&dev_attr_in_proximity0_calibscale_available.attr,
 	NULL
+pr_info("%s: stopped\n", __func__);
 };
 
 static struct attribute *tsl2X7X_ALS_event_attrs[] = {
+pr_info("%s: started\n", __func__);
 	&dev_attr_in_intensity0_thresh_period.attr,
 	NULL,
+pr_info("%s: stopped\n", __func__);
 };
 static struct attribute *tsl2X7X_PRX_event_attrs[] = {
+pr_info("%s: started\n", __func__);
 	&dev_attr_in_proximity0_thresh_period.attr,
 	NULL,
+pr_info("%s: stopped\n", __func__);
 };
 
 static struct attribute *tsl2X7X_ALSPRX_event_attrs[] = {
+pr_info("%s: started\n", __func__);
 	&dev_attr_in_intensity0_thresh_period.attr,
 	&dev_attr_in_proximity0_thresh_period.attr,
 	NULL,
+pr_info("%s: stopped\n", __func__);
 };
 
 static const struct attribute_group tsl2X7X_device_attr_group_tbl[] = {
+pr_info("%s: started\n", __func__);
 	[ALS] = {
 		.attrs = tsl2x7x_ALS_device_attrs,
 	},
@@ -1655,9 +1740,11 @@ static const struct attribute_group tsl2X7X_device_attr_group_tbl[] = {
 	[ALSPRX2] = {
 		.attrs = tsl2x7x_ALSPRX2_device_attrs,
 	},
+pr_info("%s: stopped\n", __func__);
 };
 
 static struct attribute_group tsl2X7X_event_attr_group_tbl[] = {
+pr_info("%s: started\n", __func__);
 	[ALS] = {
 		.attrs = tsl2X7X_ALS_event_attrs,
 		.name = "events",
@@ -1670,9 +1757,11 @@ static struct attribute_group tsl2X7X_event_attr_group_tbl[] = {
 		.attrs = tsl2X7X_ALSPRX_event_attrs,
 		.name = "events",
 	},
+pr_info("%s: stopped\n", __func__);
 };
 
 static const struct iio_info tsl2X7X_device_info[] = {
+pr_info("%s: started\n", __func__);
 	[ALS] = {
 		.attrs = &tsl2X7X_device_attr_group_tbl[ALS],
 		.event_attrs = &tsl2X7X_event_attr_group_tbl[ALS],
@@ -1728,9 +1817,11 @@ static const struct iio_info tsl2X7X_device_info[] = {
 		.read_event_config = &tsl2x7x_read_interrupt_config,
 		.write_event_config = &tsl2x7x_write_interrupt_config,
 	},
+pr_info("%s: stopped\n", __func__);
 };
 
 static const struct tsl2x7x_chip_info tsl2x7x_chip_info_tbl[] = {
+pr_info("%s: started\n", __func__);
 	[ALS] = {
 		.channel = {
 			{
@@ -1845,11 +1936,13 @@ static const struct tsl2x7x_chip_info tsl2x7x_chip_info_tbl[] = {
 	.chan_table_elements = 4,
 	.info = &tsl2X7X_device_info[ALSPRX2],
 	},
+pr_info("%s: stopped\n", __func__);
 };
 
 static int tsl2x7x_probe(struct i2c_client *clientp,
 	const struct i2c_device_id *id)
 {
+pr_info("%s: started\n", __func__);
 	int ret;
 	unsigned char device_id;
 	struct iio_dev *indio_dev;
@@ -1939,10 +2032,12 @@ fail1:
 	iio_device_free(indio_dev);
 
 	return ret;
+pr_info("%s: stopped\n", __func__);
 }
 
 static int tsl2x7x_suspend(struct device *dev)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 	int ret = 0;
@@ -1958,10 +2053,12 @@ static int tsl2x7x_suspend(struct device *dev)
 	}
 
 	return ret;
+pr_info("%s: stopped\n", __func__);
 }
 
 static int tsl2x7x_resume(struct device *dev)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct tsl2X7X_chip *chip = iio_priv(indio_dev);
 	int ret = 0;
@@ -1975,10 +2072,12 @@ static int tsl2x7x_resume(struct device *dev)
 		ret = tsl2x7x_chip_on(indio_dev);
 
 	return ret;
+pr_info("%s: stopped\n", __func__);
 }
 
 static int tsl2x7x_remove(struct i2c_client *client)
 {
+pr_info("%s: started\n", __func__);
 	struct iio_dev *indio_dev = i2c_get_clientdata(client);
 
 	tsl2x7x_chip_off(indio_dev);
@@ -1990,9 +2089,11 @@ static int tsl2x7x_remove(struct i2c_client *client)
 	iio_device_free(indio_dev);
 
 	return 0;
+pr_info("%s: stopped\n", __func__);
 }
 
 static struct i2c_device_id tsl2x7x_idtable[] = {
+pr_info("%s: started\n", __func__);
 	{ "tsl2571", tsl2571 },
 	{ "tsl2671", tsl2671 },
 	{ "tmd2671", tmd2671 },
@@ -2004,17 +2105,21 @@ static struct i2c_device_id tsl2x7x_idtable[] = {
 	{ "tsl2772", tsl2772 },
 	{ "tmd2772", tmd2772 },
 	{}
+pr_info("%s: stopped\n", __func__);
 };
 
 MODULE_DEVICE_TABLE(i2c, tsl2x7x_idtable);
 
 static const struct dev_pm_ops tsl2x7x_pm_ops = {
+pr_info("%s: started\n", __func__);
 	.suspend = tsl2x7x_suspend,
 	.resume  = tsl2x7x_resume,
+pr_info("%s: stopped\n", __func__);
 };
 
 /* Driver definition */
 static struct i2c_driver tsl2x7x_driver = {
+pr_info("%s: started\n", __func__);
 	.driver = {
 		.name = "tsl2x7x",
 		.pm = &tsl2x7x_pm_ops,
@@ -2022,6 +2127,7 @@ static struct i2c_driver tsl2x7x_driver = {
 	.id_table = tsl2x7x_idtable,
 	.probe = tsl2x7x_probe,
 	.remove = tsl2x7x_remove,
+pr_info("%s: stopped\n", __func__);
 };
 
 module_i2c_driver(tsl2x7x_driver);
