@@ -77,6 +77,5 @@
 
 #define SDCARDFS_SUPER_MAGIC    0xb550ca10
 #define BPF_FS_MAGIC		0xcafe4a11
-#define NSFS_MAGIC		0x6e736673
 
 #endif /* __LINUX_MAGIC_H__ */
