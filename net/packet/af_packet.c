@@ -1436,10 +1436,10 @@ static void fanout_release(struct sock *sk)
 	mutex_lock(&fanout_mutex);
 	po->fanout = NULL;
 
-	if (atomic_dec_and_test(&f->sk_ref)) {
-		list_del(&f->list);
-		dev_remove_pack(&f->prot_hook);
-		kfree(f);
+		if (atomic_dec_and_test(&f->sk_ref))
+			list_del(&f->list);
+		else
+			f = NULL;
 	}
 	mutex_unlock(&fanout_mutex);
 }
