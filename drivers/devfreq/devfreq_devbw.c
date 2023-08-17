@@ -25,7 +25,6 @@
 #include <linux/mutex.h>
 #include <linux/interrupt.h>
 #include <linux/devfreq.h>
-#include <linux/devfreq_boost.h>
 #include <linux/of.h>
 #include <trace/events/power.h>
 #include <linux/msm-bus.h>
@@ -231,9 +230,6 @@ int devfreq_add_devbw(struct device *dev)
 		msm_bus_scale_unregister_client(d->bus_client);
 		return PTR_ERR(d->df);
 	}
-
-	if (!strcmp(dev_name(dev), "soc:qcom,cpubw"))
-		devfreq_register_boost_device(DEVFREQ_MSM_CPUBW, d->df);
 
 	return 0;
 }
