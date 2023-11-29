@@ -26,7 +26,7 @@
 /*
  * For MSM8992 (big.LITTLE). CPU0-3 are LITTLE CPUs; CPU4-5 are big CPUs.
  */
-#define LITTLE_CPU_MASK (CPU_MASK(0) | CPU_MASK(1) | CPU_MASK(2) | CPU_MASK(3))
+#define LITTLE_CPU_MASK (CPU_MASK(0) | CPU_MASK(2) | CPU_MASK(3))
 #define BIG_CPU_MASK (CPU_MASK(4) | CPU_MASK(5))
 
 /* Available bits for boost_policy state */
