@@ -366,17 +366,17 @@ if ($signature_file) {
 	#
 	my $pid;
 	$pid = open2(*read_from, *write_to,
-		     "openssl rsautl -sign -inkey $private_key -keyform PEM") ||
-	    die "openssl rsautl";
+		     "openssl pkeyutl -sign -inkey $private_key -keyform PEM") ||
+	    die "openssl pkeyutl";
 	binmode write_to;
-	print write_to $prologue . $digest || die "pipe to openssl rsautl";
-	close(write_to) || die "pipe to openssl rsautl";
+	print write_to $prologue . $digest || die "pipe to openssl pkeyutl";
+	close(write_to) || die "pipe to openssl pkeyutl";
 
 	binmode read_from;
-	read(read_from, $signature, 4096) || die "pipe from openssl rsautl";
-	close(read_from) || die "pipe from openssl rsautl";
+	read(read_from, $signature, 4096) || die "pipe from openssl pkeyutl";
+	close(read_from) || die "pipe from openssl pkeyutl";
 	waitpid($pid, 0) || die;
-	die "openssl rsautl died: $?" if ($? >> 8);
+	die "openssl pkeyutl died: $?" if ($? >> 8);
 }
 $signature = pack("n", length($signature)) . $signature,
 
