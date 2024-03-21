@@ -415,7 +415,7 @@ static void do_input_boost_multi(struct work_struct *work)
 			multi_boost_started = false;
 		}
 
-		mod_delayed_work(cpu_boost_wq, &input_boost_rem,
+		mod_delayed_work(system_power_efficient_wq, &input_boost_rem,
 						msecs_to_jiffies(input_boost_ms * 2));
 	}
 
@@ -440,7 +440,7 @@ static void cpuboost_input_event(struct input_handle *handle,
 		if (work_pending(&input_boost_multi))
 			return;
 
-		queue_work(cpu_boost_wq, &input_boost_multi);
+		queue_work(system_power_efficient_wq, &input_boost_multi);
 		last_input_time = ktime_to_us(ktime_get());
 		return;
 	}
