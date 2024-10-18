@@ -5280,24 +5280,6 @@ static int nl80211_parse_random_mac(struct nlattr **attrs,
 	return 0;
 }
 
-static int nl80211_abort_scan(struct sk_buff *skb, struct genl_info *info)
-{
-	struct cfg80211_registered_device *rdev = info->user_ptr[0];
-	struct wireless_dev *wdev = info->user_ptr[1];
-
-	if (!rdev->ops->abort_scan)
-		return -EOPNOTSUPP;
-
-//	if (rdev->scan_msg)
-//		return 0;
-
-	if (!rdev->scan_req)
-		return -ENOENT;
-
-	rdev_abort_scan(rdev, wdev);
-	return 0;
-}
-
 static int nl80211_trigger_scan(struct sk_buff *skb, struct genl_info *info)
 {
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
