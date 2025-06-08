@@ -2133,7 +2133,11 @@ static int select_best_cpu(struct task_struct *p, int target, int reason,
 		sync = 0;
 	}
 
-	if (small_task && !boost && !sync) {
+#ifdef CONFIG_UCLAMP_TASK
+	prefer_idle = uclamp_latency_sensitive(p);
+#endif
+
+        if (small_task && !boost && !sync) {
 		best_cpu = best_small_task_cpu(p, sync);
 		prefer_idle = 0;	/* For sched_task_load tracepoint */
 		goto done;
