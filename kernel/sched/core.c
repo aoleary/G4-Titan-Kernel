@@ -901,7 +901,7 @@ static void set_load_weight(struct task_struct *p)
 static DEFINE_MUTEX(uclamp_mutex);
 
 /* Max allowed minimum utilization */
-unsigned int sysctl_sched_uclamp_util_min = SCHED_CAPACITY_SCALE;
+unsigned int sysctl_sched_uclamp_util_min = 0;
 
 /* Max allowed maximum utilization */
 unsigned int sysctl_sched_uclamp_util_max = SCHED_CAPACITY_SCALE;
@@ -1344,6 +1344,9 @@ static void __init init_uclamp(void)
 		root_task_group.uclamp[clamp_id] = uc_max;
 #endif
 	}
+
+	uclamp_se_set(&uclamp_default[UCLAMP_MIN],
+		      sysctl_sched_uclamp_util_min, false);
 }
 
 #else /* CONFIG_UCLAMP_TASK */
