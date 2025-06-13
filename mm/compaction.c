@@ -20,7 +20,6 @@
 #include <linux/freezer.h>
 #include <linux/psi.h>
 #include <linux/module.h>
-#include <linux/drop_caches.h>
 #ifdef CONFIG_STATE_NOTIFIER
 #include <linux/state_notifier.h>
 #endif
@@ -1152,7 +1151,7 @@ static struct compact_thread {
 	atomic_t should_run;
 } compact_thread;
 
-static uint compact_interval_sec = 2250;
+static uint compact_interval_sec = 1800;
 module_param_named(interval, compact_interval_sec, uint,
 			S_IRUGO | S_IWUSR | S_IWGRP);
 
@@ -1185,10 +1184,7 @@ static int compact_thread_func(void *data)
 				compact_thread_should_run());
 		if (compact_thread_should_run()) {
                         psi_memstall_enter(&pflags);
-			sys_sync();
 			compact_nodes();
-			iterate_supers(drop_pagecache_sb, NULL);
-			drop_slab();
 			atomic_set(&compact_thread.should_run, 0);
 			psi_memstall_leave(&pflags);
 		}
