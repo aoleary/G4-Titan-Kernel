@@ -384,7 +384,11 @@ static irqreturn_t gpio_keys_gpio_isr(int irq, void *dev_id)
 	struct gpio_button_data *bdata = dev_id;
 
 	BUG_ON(irq != bdata->irq);
-
+#ifdef CONFIG_VOLUMEUP_BUTTON_PANIC
+	if (bdata->button->code == 115) {
+		panic("Button was pressed panicing to dump logs, please get logs from pstore");
+	}
+#endif
 	if (bdata->button->wakeup)
 		pm_stay_awake(bdata->input->dev.parent);
 	if (bdata->timer_debounce)
