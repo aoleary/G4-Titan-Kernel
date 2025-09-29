@@ -395,5 +395,7 @@ source "net/ipc_router/Kconfig"
 endif   # if NET
 
 # Used by archs to tell that they support BPF_JIT
+#j0sh1x IDFK HOW TO ENABLE THIS ON ARM64 SO HACK IT WE NEED BPF_JIT
 config HAVE_BPF_JIT
 	bool
+	default y
