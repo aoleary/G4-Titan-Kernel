@@ -77,9 +77,9 @@ static void dm_bufio_alloc_callback(struct dm_buffer *buf)
 /*
  * Translate input sector number to the sector number on the target device.
  */
-static sector_t verity_map_sector(struct dm_verity *v, sector_t bi_iter.bi_sector)
+static sector_t verity_map_sector(struct dm_verity *v, sector_t bi_sector)
 {
-	return v->data_start + dm_target_offset(v->ti, bi_iter.bi_sector);
+	return v->data_start + dm_target_offset(v->ti, bi_sector);
 }
 
 /*
@@ -828,7 +828,7 @@ int verity_merge(struct dm_target *ti, struct bvec_merge_data *bvm,
 		return max_size;
 
 	bvm->bi_bdev = v->data_dev->bdev;
-	bvm->bi_iter.bi_sector = verity_map_sector(v, bvm->bi_iter.bi_sector);
+	bvm->bi_sector = verity_map_sector(v, bvm->bi_sector);
 
 	return min(max_size, q->merge_bvec_fn(q, bvm, biovec));
 }
