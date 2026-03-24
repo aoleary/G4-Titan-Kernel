@@ -211,6 +211,10 @@ struct smbchg_chip {
 	bool				dc_present;
 	bool				usb_present;
 	bool				batt_present;
+	enum 				power_supply_type g4_initial_usb_type;
+	enum 				power_supply_type g4_effective_usb_type;
+	bool 				g4_force_dcp_done;
+	bool 				g4_usb_configured;
 	int				otg_retries;
 	ktime_t				otg_enable_time;
 	bool				aicl_deglitch_short;
@@ -276,6 +280,7 @@ struct smbchg_chip {
 	struct work_struct		usb_set_online_work;
 	struct delayed_work		vfloat_adjust_work;
 	struct delayed_work		hvdcp_det_work;
+	struct delayed_work		g4_charger_fallback_work;
 	spinlock_t			sec_access_lock;
 	struct mutex			current_change_lock;
 	struct mutex			usb_set_online_lock;
@@ -1026,22 +1031,50 @@ static int get_prop_charge_type(struct smbchg_chip *chip)
 {
 	int rc;
 	u8 reg, chg_type;
+	const int fast_threshold_ma = 1500;
 
 	rc = smbchg_read(chip, &reg, chip->chgr_base + CHGR_STS, 1);
 	if (rc < 0) {
 		dev_err(chip->dev, "Unable to read CHGR_STS rc = %d\n", rc);
-		return 0;
+		return POWER_SUPPLY_CHARGE_TYPE_NONE;
 	}
 
 	chg_type = (reg & CHG_TYPE_MASK) >> CHG_TYPE_SHIFT;
+
 	if (chg_type == BATT_NOT_CHG_VAL)
 		return POWER_SUPPLY_CHARGE_TYPE_NONE;
-	else if (chg_type == BATT_TAPER_CHG_VAL)
-		return POWER_SUPPLY_CHARGE_TYPE_TAPER;
-	else if (chg_type == BATT_FAST_CHG_VAL)
-		return POWER_SUPPLY_CHARGE_TYPE_FAST;
-	else if (chg_type == BATT_PRE_CHG_VAL)
+
+	if (chg_type == BATT_PRE_CHG_VAL)
 		return POWER_SUPPLY_CHARGE_TYPE_TRICKLE;
+
+	if (chg_type == BATT_TAPER_CHG_VAL)
+		return POWER_SUPPLY_CHARGE_TYPE_TAPER;
+
+	if (chg_type == BATT_FAST_CHG_VAL) {
+		if (chip->usb_present) {
+			int effective_usb_ma = chip->usb_max_current_ma;
+
+			if (chip->usb_target_current_ma > effective_usb_ma)
+				effective_usb_ma = chip->usb_target_current_ma;
+
+			if (effective_usb_ma >= fast_threshold_ma)
+				return POWER_SUPPLY_CHARGE_TYPE_FAST;
+
+			return POWER_SUPPLY_CHARGE_TYPE_TRICKLE;
+		}
+
+		if (chip->dc_present) {
+			int effective_dc_ma = chip->dc_max_current_ma;
+
+			if (chip->dc_target_current_ma > effective_dc_ma)
+				effective_dc_ma = chip->dc_target_current_ma;
+
+			if (effective_dc_ma >= fast_threshold_ma)
+				return POWER_SUPPLY_CHARGE_TYPE_FAST;
+		}
+
+		return POWER_SUPPLY_CHARGE_TYPE_TRICKLE;
+	}
 
 	return POWER_SUPPLY_CHARGE_TYPE_NONE;
 }
@@ -1685,6 +1718,24 @@ static int smbchg_set_usb_current_max(struct smbchg_chip *chip,
 
 	read_usb_type(chip, &usb_type_name, &usb_supply_type);
 
+	/*
+	 * Honor G4 latched effective USB type so later raw SDP reads
+	 * do not pull charging current back down.
+	 */
+	if (chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_CDP) {
+		pr_smb(PR_STATUS, "using latched effective usb type = CDP\n");
+		usb_supply_type = POWER_SUPPLY_TYPE_USB_CDP;
+		usb_type_name = "USB_CDP_LATCHED";
+	} else if (chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_DCP) {
+		pr_smb(PR_STATUS, "using latched effective usb type = DCP\n");
+		usb_supply_type = POWER_SUPPLY_TYPE_USB_DCP;
+		usb_type_name = "USB_DCP_LATCHED";
+	} else if (chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_HVDCP) {
+		pr_smb(PR_STATUS, "using latched effective usb type = HVDCP\n");
+		usb_supply_type = POWER_SUPPLY_TYPE_USB_HVDCP;
+		usb_type_name = "USB_HVDCP_LATCHED";
+	}
+
 	switch (usb_supply_type) {
 	case POWER_SUPPLY_TYPE_USB:
 		if (current_ma < CURRENT_150_MA) {
@@ -1767,21 +1818,22 @@ static int smbchg_set_usb_current_max(struct smbchg_chip *chip,
 			rc = smbchg_masked_write(chip,
 					chip->usb_chgpth_base + CMD_IL,
 					ICL_OVERRIDE_BIT, ICL_OVERRIDE_BIT);
-			if (rc < 0){
+			if (rc < 0) {
 				pr_err("Couldn't set override rc = %d\n", rc);
 				goto out;
-				}
+			}
 
 			chip->usb_max_current_ma = current_ma;
 			rc = smbchg_set_high_usb_chg_current(chip, current_ma);
-			if (rc < 0){
+			if (rc < 0) {
 				pr_err("Couldn't set %dmA rc = %d\n",
 					current_ma, rc);
 				goto out;
-				}
+			}
 		}
 #endif
 		break;
+
 	case POWER_SUPPLY_TYPE_USB_CDP:
 		if (current_ma < CURRENT_1500_MA) {
 			/* use override for CDP */
@@ -1792,6 +1844,9 @@ static int smbchg_set_usb_current_max(struct smbchg_chip *chip,
 				pr_err("Couldn't set override rc = %d\n", rc);
 		}
 		/* fall through */
+
+	case POWER_SUPPLY_TYPE_USB_DCP:
+	case POWER_SUPPLY_TYPE_USB_HVDCP:
 	default:
 		rc = smbchg_set_high_usb_chg_current(chip, current_ma);
 		if (rc < 0)
@@ -3705,9 +3760,48 @@ static void smbchg_external_power_changed(struct power_supply *psy)
 
 	read_usb_type(chip, &usb_type_name, &usb_supply_type);
 
+	/*
+	 * G4 override:
+	 * Once we have latched an effective fast-charge type, do not let
+	 * the raw USB psy current_limit from DWC/SDP drag us back to 500 mA.
+	 */
+	{
+		const int g4_wall_chg_ma = 1800;
+		const int g4_cdp_chg_ma = 1500;
+
+		if (chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_DCP &&
+				current_limit < g4_wall_chg_ma) {
+			pr_smb(PR_STATUS,
+				"G4 override: raw current_limit=%d, forcing DCP target=%d\n",
+				current_limit, g4_wall_chg_ma);
+			current_limit = g4_wall_chg_ma;
+			usb_supply_type = POWER_SUPPLY_TYPE_USB_DCP;
+			usb_type_name = "USB_DCP_LATCHED";
+		} else if (chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_CDP &&
+				current_limit < g4_cdp_chg_ma) {
+			pr_smb(PR_STATUS,
+				"G4 override: raw current_limit=%d, forcing CDP target=%d\n",
+				current_limit, g4_cdp_chg_ma);
+			current_limit = g4_cdp_chg_ma;
+			usb_supply_type = POWER_SUPPLY_TYPE_USB_CDP;
+			usb_type_name = "USB_CDP_LATCHED";
+		} else if (chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_HVDCP &&
+				current_limit < chip->usb_target_current_ma) {
+			pr_smb(PR_STATUS,
+				"G4 override: raw current_limit=%d, forcing HVDCP target=%d\n",
+				current_limit, chip->usb_target_current_ma);
+			current_limit = chip->usb_target_current_ma;
+			usb_supply_type = POWER_SUPPLY_TYPE_USB_HVDCP;
+			usb_type_name = "USB_HVDCP_LATCHED";
+		}
+	}
+
 #ifndef CONFIG_LGE_PM_CHECK_FB_STATUS
-	if (usb_supply_type != POWER_SUPPLY_TYPE_USB)
-		goto  skip_current_for_non_sdp;
+	if (usb_supply_type != POWER_SUPPLY_TYPE_USB &&
+	    usb_supply_type != POWER_SUPPLY_TYPE_USB_CDP &&
+	    usb_supply_type != POWER_SUPPLY_TYPE_USB_DCP &&
+	    usb_supply_type != POWER_SUPPLY_TYPE_USB_HVDCP)
+		goto skip_current_for_non_sdp;
 #endif
 
 	pr_smb(PR_MISC, "usb type = %s current_limit = %d\n",
@@ -4276,7 +4370,19 @@ static void smbchg_hvdcp_det_work(struct work_struct *work)
 	enum power_supply_type usb_type;
 	union power_supply_propval pval;
 	pval.intval = 0;
+#endif
 
+	/*
+	 * If the G4 fallback logic has already latched an effective USB type,
+	 * do not let HVDCP detection re-read raw SDP state and undo it.
+	 */
+	if (chip->g4_force_dcp_done) {
+		pr_smb(PR_STATUS,
+			"hvdcp_det_work: skipping, effective usb type already latched\n");
+		return;
+	}
+
+#ifdef CONFIG_LGE_PM_MAXIM_EVP_CONTROL
 	if (IS_ERR_OR_NULL(chip->usb_psy)) {
 		chip->usb_psy = power_supply_get_by_name("usb");
 		if (IS_ERR_OR_NULL(chip->usb_psy)) {
@@ -4331,11 +4437,10 @@ static void smbchg_hvdcp_det_work(struct work_struct *work)
 #if defined(CONFIG_SLIMPORT_ANX7812) || defined(CONFIG_SLIMPORT_ANX7816)
 		if (usb_type == POWER_SUPPLY_TYPE_USB_DCP && !slimport_is_check())
 #else
-		if ( usb_type == POWER_SUPPLY_TYPE_USB_DCP )
+		if (usb_type == POWER_SUPPLY_TYPE_USB_DCP)
 #endif
 		{
-			pr_smb(PR_LGE, "usb type is DCP. "
-					"Start  EVP detection\n");
+			pr_smb(PR_LGE, "usb type is DCP. Start EVP detection\n");
 			pval.intval = 1;
 		}
 		else
@@ -4344,13 +4449,15 @@ static void smbchg_hvdcp_det_work(struct work_struct *work)
 		}
 	}
 
-	chip->usb_psy->set_property(chip->usb_psy, POWER_SUPPLY_PROP_EVP_DETECT_START, &pval);
+	chip->usb_psy->set_property(chip->usb_psy,
+			POWER_SUPPLY_PROP_EVP_DETECT_START, &pval);
 #else
 #if defined(CONFIG_LGE_PM_HVDCP_WAKELOCK) || defined(CONFIG_LGE_PM_HVDCP_VDD_CX_VOTE)
 	else {
 #ifdef CONFIG_LGE_PM_HVDCP_VDD_CX_VOTE
-		//VOTE VDD_CX to HVDCP_VDD_CX_MIN for normal DCP
-		rc = regulator_set_voltage(chip->vddcx, HVDCP_VDD_CX_MIN, HVDCP_VDD_CX_MAX);
+		/* VOTE VDD_CX to HVDCP_VDD_CX_MIN for normal DCP */
+		rc = regulator_set_voltage(chip->vddcx,
+				HVDCP_VDD_CX_MIN, HVDCP_VDD_CX_MAX);
 		if (rc)
 			dev_err(chip->dev,
 				"vddcx set level HVDCP_VDD_CX_MIN for normal DCP failed\n");
@@ -4408,6 +4515,13 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 	int rc;
 
 	pr_smb(PR_STATUS, "triggered\n");
+
+	cancel_delayed_work_sync(&chip->g4_charger_fallback_work);
+	chip->g4_force_dcp_done = false;
+	chip->g4_usb_configured = false;
+	chip->g4_initial_usb_type = POWER_SUPPLY_TYPE_UNKNOWN;
+	chip->g4_effective_usb_type = POWER_SUPPLY_TYPE_UNKNOWN;
+
 	smbchg_aicl_deglitch_wa_check(chip);
 	if (chip->force_aicl_rerun && !chip->very_weak_charger) {
 		rc = smbchg_hw_aicl_rerun_en(chip, true);
@@ -4503,6 +4617,7 @@ static bool is_src_detect_high(struct smbchg_chip *chip)
 #define DEFAULT_WALL_CHG_MA	1800
 #define DEFAULT_SDP_MA		150
 #define DEFAULT_CDP_MA		1500
+
 static void handle_usb_insertion(struct smbchg_chip *chip)
 {
 	struct power_supply *parallel_psy = get_parallel_psy(chip);
@@ -4513,18 +4628,25 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 	pr_smb(PR_STATUS, "triggered\n");
 	/* usb inserted */
 	read_usb_type(chip, &usb_type_name, &usb_supply_type);
+
+	chip->g4_initial_usb_type = usb_supply_type;
+	chip->g4_effective_usb_type = usb_supply_type;
+	chip->g4_force_dcp_done = false;
+	chip->g4_usb_configured = false;
+
 	pr_smb(PR_STATUS,
-		"inserted type = %d (%s)", usb_supply_type, usb_type_name);
+		"inserted type = %d (%s)\n", usb_supply_type, usb_type_name);
 
 	smbchg_aicl_deglitch_wa_check(chip);
 	if (chip->usb_psy) {
 		pr_smb(PR_MISC, "setting usb psy type = %d\n",
 				usb_supply_type);
 #ifdef CONFIG_LGE_PM_HVDCP_VDD_CX_VOTE
-		//VOTE VDD_CX to HVDCP_VDD_CX_OPR
-		rc = regulator_set_voltage(chip->vddcx, HVDCP_VDD_CX_OPR, HVDCP_VDD_CX_MAX);
+		rc = regulator_set_voltage(chip->vddcx,
+				HVDCP_VDD_CX_OPR, HVDCP_VDD_CX_MAX);
 		if (rc)
-			pr_smb(PR_STATUS, "vddcx set level HVDCP_VDD_CX_OPR for USB insert fail\n");
+			pr_smb(PR_STATUS,
+				"vddcx set level HVDCP_VDD_CX_OPR for USB insert fail\n");
 #endif
 #if defined(CONFIG_SLIMPORT_ANX7812) || defined(CONFIG_SLIMPORT_ANX7816)
 		if (slimport_is_check()) {
@@ -4532,9 +4654,8 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 			pr_smb(PR_LGE, "slimport_is_connected."
 				"ignore PMI charger type detection result.\n");
 #endif
-			// do not set usb_type. do msm usb phy charger type detection.
-		}
-		else {
+			/* keep original behavior */
+		} else {
 			power_supply_set_supply_type(chip->usb_psy, usb_supply_type);
 		}
 #else
@@ -4543,13 +4664,7 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 		pr_smb(PR_MISC, "setting usb psy present = %d\n",
 				chip->usb_present);
 		power_supply_set_present(chip->usb_psy, chip->usb_present);
-		/* Notify the USB psy if OV condition is not present */
 		if (!chip->usb_ov_det) {
-			/*
-			 * Note that this could still be a very weak charger
-			 * if the handle_usb_insertion was triggered from
-			 * the falling edge of an USBIN_OV interrupt
-			 */
 			rc = power_supply_set_health_state(chip->usb_psy,
 					chip->very_weak_charger
 					? POWER_SUPPLY_HEALTH_UNSPEC_FAILURE
@@ -4569,8 +4684,9 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 		queue_delayed_work(system_power_efficient_wq,
 					&chip->hvdcp_det_work,
 					msecs_to_jiffies(HVDCP_NOTIFY_MS));
-		pr_smb(PR_STATUS, "schedule delayed work for the HVDCP detetct\n");
+		pr_smb(PR_STATUS, "schedule delayed work for the HVDCP detect\n");
 	}
+
 	mutex_lock(&chip->current_change_lock);
 	if (usb_supply_type == POWER_SUPPLY_TYPE_USB)
 		chip->usb_target_current_ma = DEFAULT_SDP_MA;
@@ -4584,6 +4700,19 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 	rc = smbchg_set_thermal_limited_usb_current_max(chip,
 				chip->usb_target_current_ma);
 	mutex_unlock(&chip->current_change_lock);
+
+	/*
+	 * G4 fallback:
+	 * If we came in as plain USB, give enumeration a chance.
+	 * If no USB data session appears, later promote to DCP.
+	 * If USB does configure, later promote to CDP.
+	 */
+	if (usb_supply_type == POWER_SUPPLY_TYPE_USB) {
+		queue_delayed_work(system_power_efficient_wq,
+				&chip->g4_charger_fallback_work,
+				msecs_to_jiffies(2500));
+		pr_smb(PR_STATUS, "scheduled G4 charger fallback work\n");
+	}
 
 	if (parallel_psy) {
 		rc = power_supply_set_present(parallel_psy, true);
@@ -4599,8 +4728,89 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 	}
 #ifdef CONFIG_LGE_PM_BMD
 	queue_delayed_work(system_power_efficient_wq,
-	&chip->update_bmd_work, 0);
+		&chip->update_bmd_work, 0);
 #endif
+}
+
+static void g4_charger_fallback_work(struct work_struct *work)
+{
+	struct smbchg_chip *chip = container_of(work,
+		struct smbchg_chip, g4_charger_fallback_work.work);
+	int rc = 0;
+
+	if (!chip->usb_present) {
+		pr_smb(PR_STATUS, "fallback: usb no longer present\n");
+		return;
+	}
+
+	if (chip->g4_force_dcp_done) {
+		pr_smb(PR_STATUS, "fallback: already handled\n");
+		return;
+	}
+
+	/*
+	 * If USB data became active, keep data and promote to CDP.
+	 * This preserves ADB on a computer.
+	 */
+	if (chip->g4_usb_configured) {
+		pr_smb(PR_STATUS, "fallback: usb configured, promoting USB -> CDP\n");
+
+		chip->g4_effective_usb_type = POWER_SUPPLY_TYPE_USB_CDP;
+
+		if (chip->usb_psy) {
+			power_supply_set_supply_type(chip->usb_psy,
+					POWER_SUPPLY_TYPE_USB_CDP);
+			power_supply_set_present(chip->usb_psy, chip->usb_present);
+		}
+
+		mutex_lock(&chip->current_change_lock);
+		chip->usb_target_current_ma = DEFAULT_CDP_MA;
+		rc = smbchg_set_thermal_limited_usb_current_max(chip,
+					chip->usb_target_current_ma);
+		mutex_unlock(&chip->current_change_lock);
+
+		if (rc)
+			pr_smb(PR_STATUS, "fallback: CDP current set failed rc=%d\n", rc);
+		else
+			pr_smb(PR_STATUS, "fallback: CDP target=%d mA\n",
+				chip->usb_target_current_ma);
+
+		chip->g4_force_dcp_done = true;
+		power_supply_changed(&chip->batt_psy);
+		return;
+	}
+
+	/*
+	 * No USB data session appeared. Treat it like a wall charger.
+	 */
+	pr_smb(PR_STATUS, "fallback: no usb config, promoting USB -> DCP\n");
+
+	chip->g4_effective_usb_type = POWER_SUPPLY_TYPE_USB_DCP;
+
+	if (chip->usb_psy) {
+		power_supply_set_supply_type(chip->usb_psy,
+				POWER_SUPPLY_TYPE_USB_DCP);
+		power_supply_set_present(chip->usb_psy, chip->usb_present);
+	}
+
+	mutex_lock(&chip->current_change_lock);
+	chip->usb_target_current_ma = DEFAULT_WALL_CHG_MA;
+	rc = smbchg_set_thermal_limited_usb_current_max(chip,
+				chip->usb_target_current_ma);
+	mutex_unlock(&chip->current_change_lock);
+
+	if (rc)
+		pr_smb(PR_STATUS, "fallback: DCP current set failed rc=%d\n", rc);
+	else
+		pr_smb(PR_STATUS, "fallback: DCP target=%d mA\n",
+			chip->usb_target_current_ma);
+
+	queue_delayed_work(system_power_efficient_wq,
+			&chip->hvdcp_det_work,
+			msecs_to_jiffies(HVDCP_NOTIFY_MS));
+
+	chip->g4_force_dcp_done = true;
+	power_supply_changed(&chip->batt_psy);
 }
 
 #ifdef CONFIG_LGE_PM_USBIN
@@ -5030,7 +5240,17 @@ static int smbchg_battery_get_property(struct power_supply *psy,
 		val->intval = chip->chg_enabled;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
-		val->intval = get_prop_charge_type(chip);
+		/*
+		 * If the G4 logic has latched DCP/CDP/HVDCP, always report FAST.
+		 * Otherwise fall back to the normal PMIC charge type logic.
+		 */
+		if (chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_DCP ||
+		    chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_CDP ||
+		    chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_HVDCP) {
+			val->intval = POWER_SUPPLY_CHARGE_TYPE_FAST;
+		} else {
+			val->intval = get_prop_charge_type(chip);
+		}
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
 		val->intval = smbchg_float_voltage_get(chip);
@@ -5061,7 +5281,18 @@ static int smbchg_battery_get_property(struct power_supply *psy,
 		val->intval = get_prop_batt_capacity(chip);
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
-		val->intval = get_prop_batt_current_now(chip);
+		/*
+		 * For latched fast-charge modes, report the programmed target
+		 * current so UI/apps do not flap to 0 mA during HVDCP/taper
+		 * transitions. Otherwise use the real battery current.
+		 */
+		if (chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_DCP ||
+		    chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_CDP ||
+		    chip->g4_effective_usb_type == POWER_SUPPLY_TYPE_USB_HVDCP) {
+			val->intval = chip->usb_target_current_ma * 1000;
+		} else {
+			val->intval = get_prop_batt_current_now(chip);
+		}
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		val->intval = get_prop_batt_voltage_now(chip);
@@ -7424,6 +7655,10 @@ static int smbchg_probe(struct spmi_device *spmi)
 	INIT_WORK(&chip->usb_set_online_work, smbchg_usb_update_online_work);
 	INIT_DELAYED_WORK(&chip->parallel_en_work,
 			smbchg_parallel_usb_en_work);
+	INIT_DELAYED_WORK(&chip->g4_charger_fallback_work, g4_charger_fallback_work);
+	chip->g4_force_dcp_done = false;
+	chip->g4_usb_configured = false;
+	chip->g4_initial_usb_type = POWER_SUPPLY_TYPE_UNKNOWN;
 	INIT_DELAYED_WORK(&chip->vfloat_adjust_work, smbchg_vfloat_adjust_work);
 	INIT_DELAYED_WORK(&chip->hvdcp_det_work, smbchg_hvdcp_det_work);
 #ifdef CONFIG_LGE_PM_USBIN
@@ -7445,12 +7680,22 @@ static int smbchg_probe(struct spmi_device *spmi)
 	INIT_DELAYED_WORK(&chip->enable_evp_chg_work, enable_evp_chg_work);
 #endif
 
+	INIT_DELAYED_WORK(&chip->g4_charger_fallback_work,
+			g4_charger_fallback_work);
+
+	chip->g4_force_dcp_done = false;
+	chip->g4_usb_configured = false;
+	chip->g4_initial_usb_type = POWER_SUPPLY_TYPE_UNKNOWN;
+	chip->g4_effective_usb_type = POWER_SUPPLY_TYPE_UNKNOWN;
+
 	chip->vadc_dev = vadc_dev;
 	chip->spmi = spmi;
 	chip->dev = &spmi->dev;
 	chip->usb_psy = usb_psy;
 	chip->fake_battery_soc = -EINVAL;
 	chip->usb_online = -EINVAL;
+        chip->g4_initial_usb_type = POWER_SUPPLY_TYPE_UNKNOWN;
+        chip->g4_effective_usb_type = POWER_SUPPLY_TYPE_UNKNOWN;
 	dev_set_drvdata(&spmi->dev, chip);
 
 	spin_lock_init(&chip->sec_access_lock);
