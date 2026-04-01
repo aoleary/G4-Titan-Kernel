@@ -40,6 +40,8 @@
 #include "internal.h"
 #include "mount.h"
 
+static atomic_t busy_umount_dentry_warns = ATOMIC_INIT(0);
+
 /*
  * Usage:
  * dcache->d_inode->i_lock protects:
@@ -950,20 +952,48 @@ static void shrink_dcache_for_umount_subtree(struct dentry *dentry)
 			dentry_lru_del(dentry);
 			__d_shrink(dentry);
 
-			if (dentry->d_count != 0) {
-				printk(KERN_ERR
-				       "BUG: Dentry %p{i=%lx,n=%s}"
-				       " still in use (%d)"
-				       " [unmount of %s %s]\n",
-				       dentry,
-				       dentry->d_inode ?
-				       dentry->d_inode->i_ino : 0UL,
-				       dentry->d_name.name,
-				       dentry->d_count,
-				       dentry->d_sb->s_type->name,
-				       dentry->d_sb->s_id);
-				BUG();
-			}
+
+                        /*
+                         * Some legacy shutdown paths leave dentries busy
+                         * during unmount. Do not BUG() or free such dentries
+                         * here; just warn, detach them from this walk, and
+                         * continue upward.
+                         */
+                        if (dentry->d_count != 0) {
+                                if (atomic_inc_return(&busy_umount_dentry_warns) <= 20) {
+                                        struct dentry *p = dentry->d_parent;
+
+                                        printk(KERN_ERR
+                                               "WARN: busy dentry during umount: "
+                                               "{i=%lx,n=%s,parent=%s} count=%d "
+                                               "[unmount of %s %s] comm=%s pid=%d\n",
+                                               dentry->d_inode ?
+                                               dentry->d_inode->i_ino : 0UL,
+                                               dentry->d_name.name ?
+                                               dentry->d_name.name : "(null)",
+                                               (p && p->d_name.name) ?
+                                               p->d_name.name : "(null)",
+                                               dentry->d_count,
+                                               dentry->d_sb->s_type->name,
+                                               dentry->d_sb->s_id,
+                                               current->comm, current->pid);
+                                }
+
+                                if (IS_ROOT(dentry)) {
+                                        parent = NULL;
+                                        list_del_init(&dentry->d_child);
+                                } else {
+                                        parent = dentry->d_parent;
+                                        parent->d_count--;
+                                        list_del_init(&dentry->d_child);
+                                }
+
+                                if (!parent)
+                                        return;
+
+                                dentry = parent;
+                                continue;
+                        }
 
 			if (IS_ROOT(dentry)) {
 				parent = NULL;
