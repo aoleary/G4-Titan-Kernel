@@ -443,55 +443,67 @@ static int cpu_uevent(struct device *dev, struct kobj_uevent_env *env)
 /*
  * register_cpu - Setup a sysfs device for a CPU.
  * @cpu - cpu->hotpluggable field set to 1 will generate a control file in
- *	  sysfs for this CPU.
+ *        sysfs for this CPU.
  * @num - CPU number to use when creating the device.
  *
  * Initialize and register the CPU device.
  */
 int register_cpu(struct cpu *cpu, int num)
 {
-	int error;
+        int error;
 
-	cpu->node_id = cpu_to_node(num);
-	memset(&cpu->dev, 0x00, sizeof(struct device));
-	cpu->dev.id = num;
-	cpu->dev.bus = &cpu_subsys;
-	cpu->dev.release = cpu_device_release;
-	cpu->dev.of_node = of_get_cpu_node(num, NULL);
-	cpu->dev.offline_disabled = !cpu->hotpluggable;
+        cpu->node_id = cpu_to_node(num);
+        memset(&cpu->dev, 0x00, sizeof(struct device));
+        cpu->dev.id = num;
+        cpu->dev.bus = &cpu_subsys;
+        cpu->dev.release = cpu_device_release;
+        cpu->dev.of_node = of_get_cpu_node(num, NULL);
+        cpu->dev.offline_disabled = !cpu->hotpluggable;
+
+        /*
+         * Keep the device core's offline state aligned with the real CPU
+         * online mask. If this is wrong, sysfs writes to cpuX/online may be
+         * ignored because device_online() thinks the CPU device is already
+         * online.
+         */
+        cpu->dev.offline = !cpu_online(num);
+
+        pr_err("BIGCORE_REG cpu=%d hotpluggable=%d cpu_online=%d dev.offline=%d\n",
+               num, cpu->hotpluggable, cpu_online(num), cpu->dev.offline);
+
 #ifdef CONFIG_GENERIC_CPU_AUTOPROBE
-	cpu->dev.bus->uevent = cpu_uevent;
+        cpu->dev.bus->uevent = cpu_uevent;
 #endif
-	error = device_register(&cpu->dev);
-	if (!error)
-		per_cpu(cpu_sys_devices, num) = &cpu->dev;
-	if (!error)
-		register_cpu_under_node(num, cpu_to_node(num));
+        error = device_register(&cpu->dev);
+        if (!error)
+                per_cpu(cpu_sys_devices, num) = &cpu->dev;
+        if (!error)
+                register_cpu_under_node(num, cpu_to_node(num));
 
 #ifdef CONFIG_KEXEC
-	if (!error)
-		error = device_create_file(&cpu->dev, &dev_attr_crash_notes);
-	if (!error)
-		error = device_create_file(&cpu->dev,
-					   &dev_attr_crash_notes_size);
+        if (!error)
+                error = device_create_file(&cpu->dev, &dev_attr_crash_notes);
+        if (!error)
+                error = device_create_file(&cpu->dev,
+                                           &dev_attr_crash_notes_size);
 #endif
 
 #ifdef CONFIG_SCHED_HMP
-	if (!error)
-		error = device_create_file(&cpu->dev,
-					 &dev_attr_sched_mostly_idle_load);
-	if (!error)
-		error = device_create_file(&cpu->dev,
-					 &dev_attr_sched_mostly_idle_nr_run);
-	if (!error)
-		error = device_create_file(&cpu->dev,
-					 &dev_attr_sched_mostly_idle_freq);
-	if (!error)
-		error = device_create_file(&cpu->dev,
-					 &dev_attr_sched_prefer_idle);
+        if (!error)
+                error = device_create_file(&cpu->dev,
+                                           &dev_attr_sched_mostly_idle_load);
+        if (!error)
+                error = device_create_file(&cpu->dev,
+                                           &dev_attr_sched_mostly_idle_nr_run);
+        if (!error)
+                error = device_create_file(&cpu->dev,
+                                           &dev_attr_sched_mostly_idle_freq);
+        if (!error)
+                error = device_create_file(&cpu->dev,
+                                           &dev_attr_sched_prefer_idle);
 #endif
 
-	return error;
+        return error;
 }
 
 struct device *get_cpu_device(unsigned cpu)
