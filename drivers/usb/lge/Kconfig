@@ -120,6 +120,7 @@ config LGE_USB_HOST_SUPPORT_LIST_NETWORK
 config LGE_USB_HOST_SUPPORT_LIST_INPUT
 	bool "enable usb host compatible input devices list"
 	default y
+        depends on INPUT && INPUT_MOUSE && USB_ARCH_HAS_HCD
 	select INPUT_MOUSEDEV
 	select INPUT_EVDEV
 #	select INPUT_MOUSE
