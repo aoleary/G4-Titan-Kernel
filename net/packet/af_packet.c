@@ -311,7 +311,7 @@ static bool packet_use_direct_xmit(const struct packet_sock *po)
 
 static u16 packet_pick_tx_queue(struct net_device *dev)
 {
-	return (u16) smp_processor_id() % dev->real_num_tx_queues;
+	return (u16) raw_smp_processor_id() % dev->real_num_tx_queues;
 }
 
 /* register_prot_hook must be invoked with the po->bind_lock held,
@@ -1223,7 +1223,7 @@ static unsigned int fanout_demux_cpu(struct packet_fanout *f,
 				     struct sk_buff *skb,
 				     unsigned int num)
 {
-	return smp_processor_id() % num;
+	return raw_smp_processor_id() % num;
 }
 
 static unsigned int fanout_demux_rnd(struct packet_fanout *f,
