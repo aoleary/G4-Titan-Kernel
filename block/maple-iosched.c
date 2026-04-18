@@ -152,6 +152,27 @@ maple_choose_expired_request(struct maple_data *mdata)
 	return NULL;
 }
 
+static struct request *maple_choose_expired_request_dir(struct maple_data *mdata, int data_dir)
+{
+    struct request *rq_async = maple_expired_request(mdata, ASYNC, data_dir);
+    struct request *rq_sync = maple_expired_request(mdata, SYNC, data_dir);
+
+    mdata->batched = 0;
+
+    if (rq_async && rq_sync) {
+        if (time_after(rq_fifo_time(rq_sync), rq_fifo_time(rq_async)))
+            return rq_async;
+        return rq_sync;
+    } else if (rq_async) {
+        return rq_async;
+    } else if (rq_sync) {
+        return rq_sync;
+    }
+
+    return NULL;
+}
+
+
 static struct request *
 maple_choose_request(struct maple_data *mdata, int data_dir)
 {
@@ -198,38 +219,36 @@ maple_dispatch_request(struct maple_data *mdata, struct request *rq)
 			mdata->starved++;
 	}
 }
-
-static int
-maple_dispatch_requests(struct request_queue *q, int force)
+static int maple_dispatch_requests(struct request_queue *q, int force)
 {
-	struct maple_data *mdata = maple_get_data(q);
-	struct request *rq = NULL;
-	int data_dir = READ;
+    struct maple_data *mdata = maple_get_data(q);
+    struct request *rq = NULL;
+    int data_dir = READ;
+    int force_write = 0;
 
-	/*
-	 * Retrieve any expired request after a batch of
-	 * sequential requests.
-	 */
-	if (mdata->batched >= mdata->fifo_batch)
-		rq = maple_choose_expired_request(mdata);
+    if (!state_suspended && mdata->starved >= mdata->writes_starved)
+        force_write = 1;
+    else if (state_suspended && mdata->starved >= 1)
+        force_write = 1;
 
-	/* Retrieve request */
-	if (!rq) {
-		/* Treat writes fairly while suspended, otherwise allow them to be starved */
-		if (!state_suspended && mdata->starved >= mdata->writes_starved)
-			data_dir = WRITE;
-		else if (state_suspended && mdata->starved >= 1)
-			data_dir = WRITE;
+    if (mdata->batched >= mdata->fifo_batch) {
+        if (force_write)
+            rq = maple_choose_expired_request_dir(mdata, WRITE);
+        if (!rq)
+            rq = maple_choose_expired_request(mdata);
+    }
 
-		rq = maple_choose_request(mdata, data_dir);
-		if (!rq)
-			return 0;
-	}
+    if (!rq) {
+        if (force_write)
+            data_dir = WRITE;
 
-	/* Dispatch request */
-	maple_dispatch_request(mdata, rq);
+        rq = maple_choose_request(mdata, data_dir);
+        if (!rq)
+            return 0;
+    }
 
-	return 1;
+    maple_dispatch_request(mdata, rq);
+    return 1;
 }
 
 static struct request *
@@ -361,13 +380,13 @@ static ssize_t __FUNC(struct elevator_queue *e, const char *page, size_t count)	
 		*(__PTR) = __data;					\
 	return ret;							\
 }
-STORE_FUNCTION(maple_sync_read_expire_store, &mdata->fifo_expire[SYNC][READ], 0, INT_MAX, 1);
-STORE_FUNCTION(maple_sync_write_expire_store, &mdata->fifo_expire[SYNC][WRITE], 0, INT_MAX, 1);
-STORE_FUNCTION(maple_async_read_expire_store, &mdata->fifo_expire[ASYNC][READ], 0, INT_MAX, 1);
-STORE_FUNCTION(maple_async_write_expire_store, &mdata->fifo_expire[ASYNC][WRITE], 0, INT_MAX, 1);
-STORE_FUNCTION(maple_fifo_batch_store, &mdata->fifo_batch, 1, INT_MAX, 0);
-STORE_FUNCTION(maple_writes_starved_store, &mdata->writes_starved, 1, INT_MAX, 0);
-STORE_FUNCTION(maple_sleep_latency_multiple_store, &mdata->sleep_latency_multiple, 1, INT_MAX, 0);
+STORE_FUNCTION(maple_sync_read_expire_store, &mdata->fifo_expire[SYNC][READ], 0, 5000, 1);
+STORE_FUNCTION(maple_sync_write_expire_store, &mdata->fifo_expire[SYNC][WRITE], 0, 5000, 1);
+STORE_FUNCTION(maple_async_read_expire_store, &mdata->fifo_expire[ASYNC][READ], 0, 5000, 1);
+STORE_FUNCTION(maple_async_write_expire_store, &mdata->fifo_expire[ASYNC][WRITE], 0, 5000, 1);
+STORE_FUNCTION(maple_fifo_batch_store, &mdata->fifo_batch, 1, 64, 0);
+STORE_FUNCTION(maple_writes_starved_store, &mdata->writes_starved, 1, 16, 0);
+STORE_FUNCTION(maple_sleep_latency_multiple_store, &mdata->sleep_latency_multiple, 1, 20, 0);
 #undef STORE_FUNCTION
 
 #define DD_ATTR(name) \
