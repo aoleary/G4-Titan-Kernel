@@ -40,6 +40,7 @@ struct sugov_policy {
 	s64 up_rate_delay_ns;
 	s64 down_rate_delay_ns;
 	unsigned int next_freq;
+	unsigned int cached_raw_freq;
 
 	/* The next fields are only needed if fast switch cannot be used. */
 	struct irq_work irq_work;
@@ -146,21 +147,26 @@ static unsigned int get_next_freq(struct cpufreq_policy *policy,
 				policy->cpuinfo.max_freq : policy->cur;
 	struct sugov_policy *sg_policy = policy->governor_data;
 	unsigned long hs_util;
-	unsigned long target_freq = (freq + (freq >> 2)) * util / max;
+	unsigned int target_freq = (freq + (freq >> 2)) * util / max;
 
-	if(sg_policy->tunables->hispeed_freq == 0 ||
-		sg_policy->tunables->hispeed_load == 0)
-		return target_freq;
+	if (sg_policy->tunables->hispeed_freq != 0 &&
+	    sg_policy->tunables->hispeed_load != 0) {
+		hs_util = mult_frac(max,
+				    sg_policy->tunables->hispeed_load,
+				    100);
 
-	hs_util = mult_frac(max,
-					   sg_policy->tunables->hispeed_load,
-					   100);
+		if (util >= hs_util &&
+		    sg_policy->tunables->hispeed_freq > target_freq)
+			target_freq = sg_policy->tunables->hispeed_freq;
+	}
 
-	if (util >= hs_util &&
-		sg_policy->tunables->hispeed_freq > target_freq)
-		return sg_policy->tunables->hispeed_freq;
-	else
-		return target_freq;
+	if (target_freq == sg_policy->cached_raw_freq &&
+	    !sg_policy->need_freq_update)
+		return sg_policy->next_freq;
+
+	sg_policy->cached_raw_freq = target_freq;
+
+	return target_freq;
 }
 
 #ifdef CONFIG_NO_HZ_COMMON
