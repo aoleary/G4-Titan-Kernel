@@ -26,6 +26,9 @@ struct sugov_tunables {
 	unsigned int down_rate_limit_us;
 	unsigned long hispeed_freq;
 	unsigned int hispeed_load;
+	unsigned int boost_pct;
+	unsigned int target_load_shift;
+	unsigned int down_throttle_util;
 };
 
 struct sugov_policy {
@@ -149,6 +152,21 @@ static unsigned int get_next_freq(struct cpufreq_policy *policy,
 	unsigned long hs_util;
 	unsigned int target_freq = (freq + (freq >> 2)) * util / max;
 
+	unsigned long prev_target_freq = sg_policy->cached_raw_freq;
+	unsigned long boosted_freq;
+	unsigned long busy_util;
+
+	if (sg_policy->tunables->target_load_shift) {
+		unsigned int shift = sg_policy->tunables->target_load_shift;
+		if (shift > 20)
+			shift = 20;
+		target_freq = target_freq + (target_freq >> shift);
+	}
+
+	busy_util = mult_frac(max,
+			      sg_policy->tunables->down_throttle_util,
+			      100);
+
 	if (sg_policy->tunables->hispeed_freq != 0 &&
 	    sg_policy->tunables->hispeed_load != 0) {
 		hs_util = mult_frac(max,
@@ -160,7 +178,21 @@ static unsigned int get_next_freq(struct cpufreq_policy *policy,
 			target_freq = sg_policy->tunables->hispeed_freq;
 	}
 
-	if (target_freq == sg_policy->cached_raw_freq &&
+	
+	if (sg_policy->tunables->boost_pct) {
+		boosted_freq = target_freq +
+			mult_frac(target_freq, sg_policy->tunables->boost_pct, 100);
+		if (boosted_freq > policy->cpuinfo.max_freq)
+			boosted_freq = policy->cpuinfo.max_freq;
+		target_freq = boosted_freq;
+	}
+
+	if (prev_target_freq > target_freq &&
+	    sg_policy->tunables->down_throttle_util &&
+	    util >= busy_util)
+		target_freq = prev_target_freq;
+
+if (target_freq == sg_policy->cached_raw_freq &&
 	    !sg_policy->need_freq_update)
 		return sg_policy->next_freq;
 
@@ -544,6 +576,157 @@ static ssize_t store_hispeed_load(struct sugov_policy *sg_policy, const char *bu
 	return count;
 }
 
+static ssize_t show_sys_boost_pct(struct sugov_tunables *tunables, char *buf)
+{
+	return sprintf(buf, "%u\n", tunables->boost_pct);
+}
+
+static ssize_t store_sys_boost_pct(struct sugov_tunables *tunables, const char *buf,
+				   size_t count)
+{
+	unsigned int boost_pct;
+	struct sugov_tunables *cached = tunables;
+	unsigned int cpu;
+
+	if (kstrtouint(buf, 10, &boost_pct))
+		return -EINVAL;
+
+	for_each_possible_cpu(cpu) {
+		struct sugov_cpu *sg_cpu_i = &per_cpu(sugov_cpu, cpu);
+		struct sugov_policy *sg_policy_cpu = sg_cpu_i->sg_policy;
+
+		if (!sg_policy_cpu || !sg_policy_cpu->tunables)
+			continue;
+
+		sg_policy_cpu->tunables->boost_pct = boost_pct;
+	}
+
+	cached->boost_pct = boost_pct;
+	return count;
+}
+
+static ssize_t show_boost_pct(struct sugov_policy *sg_policy, char *buf)
+{
+	struct sugov_tunables *tunables = sg_policy->tunables;
+	return sprintf(buf, "%u\n", tunables->boost_pct);
+}
+
+static ssize_t store_boost_pct(struct sugov_policy *sg_policy, const char *buf,
+			       size_t count)
+{
+	struct sugov_tunables *tunables = sg_policy->tunables;
+	unsigned int boost_pct;
+
+	if (kstrtouint(buf, 10, &boost_pct))
+		return -EINVAL;
+
+	tunables->boost_pct = boost_pct;
+	return count;
+}
+
+static ssize_t show_sys_target_load_shift(struct sugov_tunables *tunables, char *buf)
+{
+	return sprintf(buf, "%u\n", tunables->target_load_shift);
+}
+
+static ssize_t store_sys_target_load_shift(struct sugov_tunables *tunables, const char *buf,
+					   size_t count)
+{
+	unsigned int target_load_shift;
+	struct sugov_tunables *cached = tunables;
+	unsigned int cpu;
+
+	if (kstrtouint(buf, 10, &target_load_shift))
+		return -EINVAL;
+
+	for_each_possible_cpu(cpu) {
+		struct sugov_cpu *sg_cpu_i = &per_cpu(sugov_cpu, cpu);
+		struct sugov_policy *sg_policy_cpu = sg_cpu_i->sg_policy;
+
+		if (!sg_policy_cpu || !sg_policy_cpu->tunables)
+			continue;
+
+		sg_policy_cpu->tunables->target_load_shift = target_load_shift;
+	}
+
+	cached->target_load_shift = target_load_shift;
+	return count;
+}
+
+static ssize_t show_target_load_shift(struct sugov_policy *sg_policy, char *buf)
+{
+	struct sugov_tunables *tunables = sg_policy->tunables;
+	return sprintf(buf, "%u\n", tunables->target_load_shift);
+}
+
+static ssize_t store_target_load_shift(struct sugov_policy *sg_policy, const char *buf,
+				       size_t count)
+{
+	struct sugov_tunables *tunables = sg_policy->tunables;
+	unsigned int target_load_shift;
+
+	if (kstrtouint(buf, 10, &target_load_shift))
+		return -EINVAL;
+
+	tunables->target_load_shift = target_load_shift;
+	return count;
+}
+
+static ssize_t show_sys_down_throttle_util(struct sugov_tunables *tunables, char *buf)
+{
+	return sprintf(buf, "%u\n", tunables->down_throttle_util);
+}
+
+static ssize_t store_sys_down_throttle_util(struct sugov_tunables *tunables, const char *buf,
+					    size_t count)
+{
+	unsigned int down_throttle_util;
+	struct sugov_tunables *cached = tunables;
+	unsigned int cpu;
+
+	if (kstrtouint(buf, 10, &down_throttle_util))
+		return -EINVAL;
+
+	if (down_throttle_util > 100)
+		down_throttle_util = 100;
+
+	for_each_possible_cpu(cpu) {
+		struct sugov_cpu *sg_cpu_i = &per_cpu(sugov_cpu, cpu);
+		struct sugov_policy *sg_policy_cpu = sg_cpu_i->sg_policy;
+
+		if (!sg_policy_cpu || !sg_policy_cpu->tunables)
+			continue;
+
+		sg_policy_cpu->tunables->down_throttle_util = down_throttle_util;
+	}
+
+	cached->down_throttle_util = down_throttle_util;
+	return count;
+}
+
+static ssize_t show_down_throttle_util(struct sugov_policy *sg_policy, char *buf)
+{
+	struct sugov_tunables *tunables = sg_policy->tunables;
+	return sprintf(buf, "%u\n", tunables->down_throttle_util);
+}
+
+static ssize_t store_down_throttle_util(struct sugov_policy *sg_policy, const char *buf,
+					size_t count)
+{
+	struct sugov_tunables *tunables = sg_policy->tunables;
+	unsigned int down_throttle_util;
+
+	if (kstrtouint(buf, 10, &down_throttle_util))
+		return -EINVAL;
+
+	if (down_throttle_util > 100)
+		down_throttle_util = 100;
+
+	tunables->down_throttle_util = down_throttle_util;
+	return count;
+}
+
+
 /*
  * Create show/store routines
  * - sys: One governor instance for complete SYSTEM
@@ -584,6 +767,9 @@ show_store_gov_pol_sys(up_rate_limit_us);
 show_store_gov_pol_sys(down_rate_limit_us);
 show_store_gov_pol_sys(hispeed_freq);
 show_store_gov_pol_sys(hispeed_load);
+show_store_gov_pol_sys(boost_pct);
+show_store_gov_pol_sys(target_load_shift);
+show_store_gov_pol_sys(down_throttle_util);
 
 #define gov_sys_pol_attr_rw(_name)					\
 	gov_sys_attr_rw(_name);						\
@@ -593,13 +779,19 @@ gov_sys_pol_attr_rw(up_rate_limit_us);
 gov_sys_pol_attr_rw(down_rate_limit_us);
 gov_sys_pol_attr_rw(hispeed_freq);
 gov_sys_pol_attr_rw(hispeed_load);
+gov_sys_pol_attr_rw(boost_pct);
+gov_sys_pol_attr_rw(target_load_shift);
+gov_sys_pol_attr_rw(down_throttle_util);
 
 /* One Governor instance for entire system */
 static struct attribute *sugov_attributes_gov_sys[] = {
-	&up_rate_limit_us_gov_sys.attr,
-	&down_rate_limit_us_gov_sys.attr,
-	&hispeed_freq_gov_sys.attr,
-	&hispeed_load_gov_sys.attr,
+        &up_rate_limit_us_gov_sys.attr,
+        &down_rate_limit_us_gov_sys.attr,
+        &hispeed_freq_gov_sys.attr,
+        &hispeed_load_gov_sys.attr,
+        &boost_pct_gov_sys.attr,
+        &target_load_shift_gov_sys.attr,
+        &down_throttle_util_gov_sys.attr,
 	NULL
 };
 
@@ -610,10 +802,13 @@ static struct attribute_group sugov_attr_group_gov_sys = {
 };
 
 static struct attribute *sugov_attributes_gov_pol[] = {
-	&up_rate_limit_us_gov_pol.attr,
-	&down_rate_limit_us_gov_pol.attr,
-	&hispeed_freq_gov_pol.attr,
-	&hispeed_load_gov_pol.attr,
+        &up_rate_limit_us_gov_pol.attr,
+        &down_rate_limit_us_gov_pol.attr,
+        &hispeed_freq_gov_pol.attr,
+        &hispeed_load_gov_pol.attr,
+        &boost_pct_gov_pol.attr,
+        &target_load_shift_gov_pol.attr,
+        &down_throttle_util_gov_pol.attr,
 	NULL
 };
 

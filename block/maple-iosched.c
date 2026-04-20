@@ -405,7 +405,6 @@ SHOW_FUNCTION(maple_async_write_expire_show, mdata->fifo_expire[ASYNC][WRITE], 1
 SHOW_FUNCTION(maple_fifo_batch_show, mdata->fifo_batch, 0);
 SHOW_FUNCTION(maple_writes_starved_show, mdata->writes_starved, 0);
 SHOW_FUNCTION(maple_sleep_latency_multiple_show, mdata->sleep_latency_multiple, 0);
-
 SHOW_FUNCTION(maple_read_bias_pct_show, mdata->read_bias_pct, 0);
 SHOW_FUNCTION(maple_write_bias_pct_show, mdata->write_bias_pct, 0);
 SHOW_FUNCTION(maple_suspend_starved_limit_show, mdata->suspend_starved_limit, 0);
@@ -434,7 +433,6 @@ STORE_FUNCTION(maple_async_write_expire_store, &mdata->fifo_expire[ASYNC][WRITE]
 STORE_FUNCTION(maple_fifo_batch_store, &mdata->fifo_batch, 1, 64, 0);
 STORE_FUNCTION(maple_writes_starved_store, &mdata->writes_starved, 1, 16, 0);
 STORE_FUNCTION(maple_sleep_latency_multiple_store, &mdata->sleep_latency_multiple, 1, 20, 0);
-
 STORE_FUNCTION(maple_read_bias_pct_store, &mdata->read_bias_pct, 50, 200, 0);
 STORE_FUNCTION(maple_write_bias_pct_store, &mdata->write_bias_pct, 50, 200, 0);
 STORE_FUNCTION(maple_suspend_starved_limit_store, &mdata->suspend_starved_limit, 1, 8, 0);
