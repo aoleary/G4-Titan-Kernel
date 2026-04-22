@@ -943,7 +943,7 @@ static int sugov_init(struct cpufreq_policy *policy)
 	}
 
 	if (policy->up_transition_delay_us && policy->down_transition_delay_us) {
-		tunables->up_rate_limit_us = policy->up_transition_delay_us;
+			tunables->up_rate_limit_us = policy->up_transition_delay_us;
 		tunables->down_rate_limit_us = policy->down_transition_delay_us;
 	} else {
 		unsigned int lat;
@@ -956,9 +956,14 @@ static int sugov_init(struct cpufreq_policy *policy)
                         tunables->down_rate_limit_us *= lat;
                 }
 	}
-
-	tunables->hispeed_freq = policy->max;
-	tunables->hispeed_load = 85;
+        // we need to tune the big cores via the kernel as they do not directly inherit from cpu0
+        tunables->hispeed_freq = policy->max;
+        tunables->hispeed_load = 90;
+        tunables->boost_pct = 8;
+        tunables->target_load_shift = 3;
+        tunables->down_throttle_util = 70;
+	tunables->up_rate_limit_us = 500;
+	tunables->down_rate_limit_us = 4000;
 
 	policy->governor_data = sg_policy;
 	sg_policy->tunables = tunables;
