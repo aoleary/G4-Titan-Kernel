@@ -1747,6 +1747,118 @@ static void __ref release_cluster_control(struct cpumask *off_cpus)
 }
 
 /* Work to evaluate current online CPU status and hotplug CPUs as per need*/
+
+/* Idle-offline tunables exposed via sysfs */
+static bool bigcluster_idle_offline_enable = true;
+module_param_named(bigcluster_idle_offline_enable,
+        bigcluster_idle_offline_enable, bool, 0644);
+
+static unsigned int bigcluster_idle_min_cpus = 1;
+module_param_named(bigcluster_idle_min_cpus,
+        bigcluster_idle_min_cpus, uint, 0644);
+
+static unsigned int bigcluster_idle_delay_ms = 3000;
+module_param_named(bigcluster_idle_delay_ms,
+        bigcluster_idle_delay_ms, uint, 0644);
+
+static unsigned int bigcluster_idle_load = 20;
+module_param_named(bigcluster_idle_load,
+        bigcluster_idle_load, uint, 0644);
+
+static u64 bigcluster_idle_since_us;
+
+/* Returns true if all CPUs in the cluster are idle enough to offline */
+static bool cluster_is_idle_for_offline(struct cluster *cl)
+{
+        unsigned int cpu;
+        u64 now;
+        struct load_stats *st;
+        unsigned int online_cnt;
+
+        if (!bigcluster_idle_offline_enable)
+                return false;
+
+        if (!cl || !cl->cpus)
+                return false;
+
+        online_cnt = num_online_managed(cl->cpus);
+
+        pr_info("msm_perf: idle_check online_cnt=%u min=%u load_thr=%u delay=%u\n",
+                online_cnt, bigcluster_idle_min_cpus,
+                bigcluster_idle_load, bigcluster_idle_delay_ms);
+        if (online_cnt <= bigcluster_idle_min_cpus) {
+                bigcluster_idle_since_us = 0;
+                return false;
+        }
+
+        now = ktime_to_us(ktime_get());
+
+        for_each_cpu(cpu, cl->cpus) {
+                if (!cpu_online(cpu))
+                        continue;
+
+                st = &per_cpu(cpu_load_stats, cpu);
+
+                pr_info("msm_perf: idle_check CPU%u load=%u\n",
+                        cpu, st->cpu_load);
+
+                if (st->cpu_load > bigcluster_idle_load) {
+                        pr_info("msm_perf: idle_check reject CPU%u load=%u > %u\n",
+                                cpu, st->cpu_load, bigcluster_idle_load);
+                        bigcluster_idle_since_us = 0;
+                        return false;
+                }
+        }
+
+        if (!bigcluster_idle_since_us) {
+                bigcluster_idle_since_us = now;
+                return false;
+        }
+
+        return (now - bigcluster_idle_since_us) >=
+                ((u64)bigcluster_idle_delay_ms * 1000ULL);
+}
+
+
+
+/* Offline big CPUs gracefully if the cluster is idle */
+static void msm_perf_maybe_idle_offline(struct cluster *cl)
+{
+    unsigned int cpu;
+
+    if (!cluster_is_idle_for_offline(cl))
+        return;
+
+    for_each_cpu(cpu, cl->cpus) {
+        if (!cpu_online(cpu))
+            continue;
+
+        if (num_online_managed(cl->cpus) <= bigcluster_idle_min_cpus)
+            break;
+
+        cpumask_set_cpu(cpu, cl->offlined_cpus);
+
+        pr_info("msm_perf: idling big CPU%d\n", cpu);
+
+        if (cpu_down(cpu)) {
+            cpumask_clear_cpu(cpu, cl->offlined_cpus);
+            pr_debug("msm_perf: idle offline failed for CPU%d\n", cpu);
+            continue;
+        }
+    }
+}
+
+
+static void msm_perf_queue_idle_check(const char *reason)
+{
+        pr_info("msm_perf: queue idle check reason=%s delay=%u\n",
+                reason, bigcluster_idle_delay_ms);
+
+        cancel_delayed_work(&evaluate_hotplug_work);
+        schedule_delayed_work(&evaluate_hotplug_work,
+                msecs_to_jiffies(bigcluster_idle_delay_ms));
+}
+
 static void check_cluster_status(struct work_struct *work)
 {
 	int i;
@@ -1767,6 +1879,19 @@ static void check_cluster_status(struct work_struct *work)
 		if (num_online_managed(i_cl->cpus) !=
 					i_cl->max_cpu_request)
 			try_hotplug(i_cl);
+                else
+                        msm_perf_maybe_idle_offline(i_cl);
+
+                /*
+                 * Keep polling while the big cluster has more than the idle
+                 * minimum online. This covers the case where big CPUs were
+                 * already online before the CPU_ONLINE notifier hook ran.
+                 */
+                if (bigcluster_idle_offline_enable &&
+                    i_cl == managed_clusters[num_clusters - 1] &&
+                    num_online_managed(i_cl->cpus) > bigcluster_idle_min_cpus) {
+                        msm_perf_queue_idle_check("poll");
+                }
 	}
 }
 
@@ -1794,7 +1919,16 @@ static int __ref msm_performance_cpu_callback(struct notifier_block *nfb,
 	if (i_cl == NULL)
 		return NOTIFY_OK;
 
-	if (action == CPU_UP_PREPARE || action == CPU_UP_PREPARE_FROZEN) {
+	
+        if ((action == CPU_ONLINE || action == CPU_ONLINE_FROZEN) &&
+            bigcluster_idle_offline_enable &&
+            (cpumask_test_cpu(4, i_cl->cpus) ||
+             cpumask_test_cpu(5, i_cl->cpus))) {
+                bigcluster_idle_since_us = 0;
+                msm_perf_queue_idle_check("cpu_online");
+        }
+
+        if (action == CPU_UP_PREPARE || action == CPU_UP_PREPARE_FROZEN) {
 		/*
 		 * Prevent onlining of a managed CPU if max_cpu criteria is
 		 * already satisfied
@@ -1827,6 +1961,13 @@ static int __ref msm_performance_cpu_callback(struct notifier_block *nfb,
 			pr_debug("msm_perf: Work scheduling failed %d\n", cpu);
 		}
 	}
+        /*
+         * bigcluster idle-offline reschedule after CPU online:
+         * Manual sysfs onlining does not necessarily cause another
+         * evaluate_hotplug_work pass, so schedule one after the big
+         * cluster reaches CPU_ONLINE.
+         */
+        
 
 	return NOTIFY_OK;
 }
@@ -2049,3 +2190,4 @@ static int __init msm_performance_init(void)
 	return 0;
 }
 late_initcall(msm_performance_init);
+
