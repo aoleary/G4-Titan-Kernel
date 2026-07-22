@@ -153,12 +153,35 @@ maple_choose_expired_request(struct maple_data *mdata)
 }
 
 
+static inline unsigned int
+maple_starvation_limit(struct maple_data *mdata)
+{
+       /*
+        * Adaptive write starvation:
+        *
+        * >=16 writes pending:
+        *      halve starvation threshold
+        *
+        * >=8 writes pending:
+        *      reduce threshold by one
+        */
+       if (mdata->pending_writes >= 16)
+               return max(2U,
+                          (unsigned int)mdata->writes_starved / 2);
+
+       if (mdata->pending_writes >= 8)
+               return max(3U,
+                          (unsigned int)mdata->writes_starved - 1);
+
+       return mdata->writes_starved;
+}
+
 static inline bool maple_should_force_write(struct maple_data *mdata)
 {
        if (state_suspended)
                return mdata->starved >= 1;
 
-       return mdata->starved >= mdata->writes_starved;
+       return mdata->starved >= maple_starvation_limit(mdata);
 }
 
 static struct request *maple_choose_expired_request_dir(struct maple_data *mdata, int data_dir)
