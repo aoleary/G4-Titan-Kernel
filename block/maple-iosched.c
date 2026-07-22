@@ -152,24 +152,38 @@ maple_choose_expired_request(struct maple_data *mdata)
 	return NULL;
 }
 
+
+static inline bool maple_should_force_write(struct maple_data *mdata)
+{
+       if (state_suspended)
+               return mdata->starved >= 1;
+
+       return mdata->starved >= mdata->writes_starved;
+}
+
 static struct request *maple_choose_expired_request_dir(struct maple_data *mdata, int data_dir)
 {
-    struct request *rq_async = maple_expired_request(mdata, ASYNC, data_dir);
-    struct request *rq_sync = maple_expired_request(mdata, SYNC, data_dir);
+    struct request *rq_async;
+    struct request *rq_sync;
+    struct request *rq;
 
-    mdata->batched = 0;
+    rq_async = maple_expired_request(mdata, ASYNC, data_dir);
+    rq_sync = maple_expired_request(mdata, SYNC, data_dir);
 
     if (rq_async && rq_sync) {
-        if (time_after(rq_fifo_time(rq_sync), rq_fifo_time(rq_async)))
-            return rq_async;
-        return rq_sync;
+        rq = time_before(rq_fifo_time(rq_async),
+                         rq_fifo_time(rq_sync))
+                  ? rq_async : rq_sync;
     } else if (rq_async) {
-        return rq_async;
-    } else if (rq_sync) {
-        return rq_sync;
+        rq = rq_async;
+    } else {
+        rq = rq_sync;
     }
 
-    return NULL;
+    if (rq)
+        mdata->batched = 0;
+
+    return rq;
 }
 
 
@@ -224,12 +238,9 @@ static int maple_dispatch_requests(struct request_queue *q, int force)
     struct maple_data *mdata = maple_get_data(q);
     struct request *rq = NULL;
     int data_dir = READ;
-    int force_write = 0;
+    bool force_write;
 
-    if (!state_suspended && mdata->starved >= mdata->writes_starved)
-        force_write = 1;
-    else if (state_suspended && mdata->starved >= 1)
-        force_write = 1;
+    force_write = maple_should_force_write(mdata);
 
     if (mdata->batched >= mdata->fifo_batch) {
         if (force_write)
