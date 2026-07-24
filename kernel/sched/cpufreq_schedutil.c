@@ -261,7 +261,7 @@ static unsigned int sugov_next_freq_shared(struct sugov_policy *sg_policy,
 	unsigned int j;
 
 	if (util == ULONG_MAX)
-		return max_f;
+		return (max_f * 85) / 100;
 
 	for_each_cpu(j, policy->cpus) {
 		struct sugov_cpu *j_sg_cpu;
