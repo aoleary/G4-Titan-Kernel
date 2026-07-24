@@ -179,7 +179,8 @@ static unsigned int get_next_freq(struct cpufreq_policy *policy,
 	}
 
 	
-	if (sg_policy->tunables->boost_pct) {
+	if (sg_policy->tunables->boost_pct &&
+	    util > (max * 80 / 100)) {
 		boosted_freq = target_freq +
 			mult_frac(target_freq, sg_policy->tunables->boost_pct, 100);
 		if (boosted_freq > policy->cpuinfo.max_freq)
