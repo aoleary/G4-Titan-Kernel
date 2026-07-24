@@ -232,12 +232,19 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 	 * Do not reduce the frequency if the CPU has not been idle
 	 * recently, as the reduction is likely to be premature then.
 	 */
-	if (busy && next_f < sg_policy->next_freq &&
-		   sg_policy->next_freq != UINT_MAX)
-		next_f = sg_policy->next_freq;
-	else
-		next_f = util == ULONG_MAX ? policy->cpuinfo.max_freq :
+	{
+		unsigned int raw_freq;
+
+		raw_freq = util == ULONG_MAX ? policy->cpuinfo.max_freq :
 				get_next_freq(policy, util, max);
+
+		if (busy &&
+		    sg_policy->next_freq != UINT_MAX &&
+		    raw_freq < sg_policy->next_freq)
+			next_f = sg_policy->next_freq;
+		else
+			next_f = raw_freq;
+	}
 
 	sugov_update_commit(sg_policy, time, next_f);
 }
