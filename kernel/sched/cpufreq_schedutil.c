@@ -158,8 +158,11 @@ static unsigned int get_next_freq(struct cpufreq_policy *policy,
 
 	if (sg_policy->tunables->target_load_shift) {
 		unsigned int shift = sg_policy->tunables->target_load_shift;
-		if (shift > 20)
-			shift = 20;
+
+		/* Limit schedutil frequency inflation. */
+		if (shift > 2)
+			shift = 2;
+
 		target_freq = target_freq + (target_freq >> shift);
 	}
 
