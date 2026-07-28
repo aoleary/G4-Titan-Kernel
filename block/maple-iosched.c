@@ -31,6 +31,8 @@ static const int async_write_expire = 450;	/* ditto for write async, these limit
 static const int fifo_batch = 16;		/* # of sequential requests treated as one by the above parameters. */
 static const int writes_starved = 4;		/* max times reads can starve a write */
 static const int sleep_latency_multiple = 10;	/* multple for expire time when device is asleep */
+static const int read_bias_pct = 70;
+static const int write_bias_pct = 30;
 static const int suspend_starved_limit = 1;
 
 /* Elevator data */
@@ -47,6 +49,8 @@ struct maple_data {
 	int fifo_batch;
 	int writes_starved;
         int sleep_latency_multiple;
+	int read_bias_pct;
+	int write_bias_pct;
 	int suspend_starved_limit;
 };
 
@@ -157,13 +161,28 @@ maple_choose_expired_request(struct maple_data *mdata)
 
 static inline unsigned int
 maple_starvation_limit(struct maple_data *mdata)
-   {
+{
+        unsigned int limit;
+        unsigned int write_bias;
 
-    if (state_suspended)
+        if (state_suspended)
+                return mdata->suspend_starved_limit;
 
-    	return mdata->suspend_starved_limit;
-	return mdata->writes_starved;
+        write_bias = mdata->write_bias_pct;
 
+        if (!write_bias)
+                write_bias = 1;
+
+        limit = (mdata->writes_starved *
+                 mdata->read_bias_pct) /
+                 write_bias;
+
+        if (limit < 1)
+                limit = 1;
+        else if (limit > 16)
+                limit = 16;
+
+        return limit;
 }
 
 static inline bool maple_should_force_write(struct maple_data *mdata)
@@ -332,6 +351,8 @@ static int maple_init_queue(struct request_queue *q, struct elevator_type *e)
 	mdata->fifo_batch = fifo_batch;
 	mdata->writes_starved = writes_starved;
 	mdata->sleep_latency_multiple = sleep_latency_multiple;
+	mdata->read_bias_pct = read_bias_pct;
+	mdata->write_bias_pct = write_bias_pct;
 	mdata->suspend_starved_limit = suspend_starved_limit;
 
 	spin_lock_irq(q->queue_lock);
@@ -384,6 +405,9 @@ SHOW_FUNCTION(maple_async_write_expire_show, mdata->fifo_expire[ASYNC][WRITE], 1
 SHOW_FUNCTION(maple_fifo_batch_show, mdata->fifo_batch, 0);
 SHOW_FUNCTION(maple_writes_starved_show, mdata->writes_starved, 0);
 SHOW_FUNCTION(maple_sleep_latency_multiple_show, mdata->sleep_latency_multiple, 0);
+
+SHOW_FUNCTION(maple_read_bias_pct_show, mdata->read_bias_pct, 0);
+SHOW_FUNCTION(maple_write_bias_pct_show, mdata->write_bias_pct, 0);
 SHOW_FUNCTION(maple_suspend_starved_limit_show, mdata->suspend_starved_limit, 0);
 #undef SHOW_FUNCTION
 
@@ -410,6 +434,9 @@ STORE_FUNCTION(maple_async_write_expire_store, &mdata->fifo_expire[ASYNC][WRITE]
 STORE_FUNCTION(maple_fifo_batch_store, &mdata->fifo_batch, 1, 64, 0);
 STORE_FUNCTION(maple_writes_starved_store, &mdata->writes_starved, 1, 16, 0);
 STORE_FUNCTION(maple_sleep_latency_multiple_store, &mdata->sleep_latency_multiple, 1, 20, 0);
+
+STORE_FUNCTION(maple_read_bias_pct_store, &mdata->read_bias_pct, 50, 200, 0);
+STORE_FUNCTION(maple_write_bias_pct_store, &mdata->write_bias_pct, 50, 200, 0);
 STORE_FUNCTION(maple_suspend_starved_limit_store, &mdata->suspend_starved_limit, 1, 8, 0);
 #undef STORE_FUNCTION
 
@@ -425,6 +452,8 @@ static struct elv_fs_entry maple_attrs[] = {
 	DD_ATTR(fifo_batch),
 	DD_ATTR(writes_starved),
         DD_ATTR(sleep_latency_multiple),
+	DD_ATTR(read_bias_pct),
+	DD_ATTR(write_bias_pct),
 	DD_ATTR(suspend_starved_limit),
 	__ATTR_NULL
 };
