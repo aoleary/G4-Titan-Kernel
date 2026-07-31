@@ -54,6 +54,7 @@ struct sugov_policy {
 	bool work_in_progress;
 
 	bool need_freq_update;
+	bool hispeed_active;
 };
 
 struct sugov_cpu {
@@ -176,7 +177,12 @@ static unsigned int get_next_freq(struct cpufreq_policy *policy,
 				    sg_policy->tunables->hispeed_load,
 				    100);
 
-		if (util >= hs_util &&
+		if (util >= hs_util)
+			sg_policy->hispeed_active = true;
+		else if (util < (hs_util * 85 / 100))
+			sg_policy->hispeed_active = false;
+
+		if (sg_policy->hispeed_active &&
 		    sg_policy->tunables->hispeed_freq > target_freq)
 			target_freq = sg_policy->tunables->hispeed_freq;
 	}
