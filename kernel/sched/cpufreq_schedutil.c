@@ -985,9 +985,9 @@ static int sugov_init(struct cpufreq_policy *policy)
 	}
         // we need to tune the big cores via the kernel as they do not directly inherit from cpu0
         tunables->hispeed_freq = policy->max;
-        tunables->hispeed_load = 90;
-        tunables->boost_pct = 8;
-        tunables->target_load_shift = 3;
+        tunables->hispeed_load = 85;
+        tunables->boost_pct = 5;
+        tunables->target_load_shift = 0;
         tunables->down_throttle_util = 70;
 	tunables->up_rate_limit_us = 500;
 	tunables->down_rate_limit_us = 4000;
