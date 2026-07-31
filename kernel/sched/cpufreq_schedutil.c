@@ -196,6 +196,16 @@ static unsigned int get_next_freq(struct cpufreq_policy *policy,
 	    util >= busy_util)
 		target_freq = prev_target_freq;
 
+
+/*
+ * Avoid unnecessary transitions between adjacent operating points.
+ * Ignore frequency changes smaller than 5 percent.
+ */
+if (prev_target_freq &&
+    abs((int)target_freq - (int)prev_target_freq) <
+    prev_target_freq / 20)
+    target_freq = prev_target_freq;
+
 if (target_freq == sg_policy->cached_raw_freq &&
 	    !sg_policy->need_freq_update)
 		return sg_policy->next_freq;
