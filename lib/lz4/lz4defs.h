@@ -73,13 +73,21 @@ typedef struct _U64_S { u64 v; } U64_S;
 #define LASTLITERALS	5
 #define MFLIMIT		(COPYLENGTH + MINMATCH)
 #define MINLENGTH	(MFLIMIT + 1)
-#define MAXD_LOG	16
+#ifdef CONFIG_ZRAM
+#define MAXD_LOG 13
+#else
+#define MAXD_LOG 16
+#endif
 #define MAXD		(1 << MAXD_LOG)
 #define MAXD_MASK	(u32)(MAXD - 1)
 #define MAX_DISTANCE	(MAXD - 1)
 #define HASH_LOG	(MAXD_LOG - 1)
 #define HASHTABLESIZE	(1 << HASH_LOG)
-#define MAX_NB_ATTEMPTS	256
+#ifdef CONFIG_ZRAM
+#define MAX_NB_ATTEMPTS 32
+#else
+#define MAX_NB_ATTEMPTS 256
+#endif
 #define OPTIMAL_ML	(int)((ML_MASK-1)+MINMATCH)
 #define LZ4_64KLIMIT	((1<<16) + (MFLIMIT - 1))
 #define HASHLOG64K	((MEMORY_USAGE - 2) + 1)
