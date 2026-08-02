@@ -130,6 +130,9 @@ static inline int lz4hc_insertandfindbestmatch(struct lz4hc_data *hc4,
 	const int base = 0;
 #endif
 	int nbattempts = MAX_NB_ATTEMPTS;
+#ifdef CONFIG_ZRAM
+	const BYTE *lowLimit = ip - MAX_DISTANCE;
+#endif
 	size_t repl = 0, ml = 0;
 	u16 delta;
 
@@ -149,7 +152,11 @@ static inline int lz4hc_insertandfindbestmatch(struct lz4hc_data *hc4,
 		ref -= (size_t)chaintable[(size_t)(ref) & MAXD_MASK];
 	}
 
-	while ((ref >= ip - MAX_DISTANCE) && nbattempts) {
+	#ifdef CONFIG_ZRAM
+while ((ref >= lowLimit) && nbattempts)
+#else
+while ((ref >= ip - MAX_DISTANCE) && nbattempts)
+#endif {
 		nbattempts--;
 		if (*(ref + ml) == *(ip + ml)) {
 			if (A32(ref) == A32(ip)) {
