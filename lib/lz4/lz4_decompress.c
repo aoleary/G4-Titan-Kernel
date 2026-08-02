@@ -52,6 +52,20 @@ static const int dec32table[] = {0, 3, 2, 3, 0, 0, 0, 0};
 static const int dec64table[] = {0, 0, 0, -1, 0, 1, 2, 3};
 #endif
 
+static inline void lz4_copy_literals(BYTE *dst,
+        const BYTE *src, unsigned int len)
+{
+    while (len >= sizeof(unsigned long)) {
+        *(unsigned long *)dst = *(const unsigned long *)src;
+        dst += sizeof(unsigned long);
+        src += sizeof(unsigned long);
+        len -= sizeof(unsigned long);
+    }
+
+    while (len--)
+        *dst++ = *src++;
+}
+
 static int lz4_uncompress(const char *source, char *dest, int osize)
 {
 	const BYTE *ip = (const BYTE *) source;
@@ -88,7 +102,7 @@ static int lz4_uncompress(const char *source, char *dest, int osize)
 			if (cpy != oend)
 				goto _output_error;
 
-			memcpy(op, ip, length);
+			lz4_copy_literals(op, ip, length);
 			ip += length;
 			break; /* EOF */
 		}
