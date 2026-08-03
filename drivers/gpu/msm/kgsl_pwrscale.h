@@ -82,7 +82,19 @@ struct kgsl_pwrscale {
 	bool enabled;
 	ktime_t time;
 	s64 on_time;
+
 	s64 freq_change_time;
+
+ /*
+  * GPU workload history.
+  *
+  * Used to smooth devfreq utilisation
+  * without changing raw KGSL statistics.
+  */
+ unsigned int gpu_busy_avg;
+ unsigned int gpu_busy_last;
+ unsigned int gpu_busy_samples;
+
 	struct srcu_notifier_head nh;
 	struct workqueue_struct *devfreq_wq;
 	struct work_struct devfreq_suspend_ws;

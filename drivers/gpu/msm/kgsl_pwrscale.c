@@ -313,7 +313,26 @@ int kgsl_devfreq_get_dev_status(struct device *dev,
 	stat->total_time = ktime_us_delta(tmp2, pwrscale->time);
 	pwrscale->time = tmp1;
 
+
 	stat->busy_time = pwrscale->accum_stats.busy_time;
+
+ /*
+  * Smooth GPU utilisation before
+  * passing it to devfreq.
+  */
+ pwrscale->gpu_busy_last =
+  stat->busy_time;
+
+ if (pwrscale->gpu_busy_samples < 4)
+  pwrscale->gpu_busy_samples++;
+
+ pwrscale->gpu_busy_avg =
+  ((pwrscale->gpu_busy_avg * 3) +
+   pwrscale->gpu_busy_last) / 4;
+
+ stat->busy_time =
+  pwrscale->gpu_busy_avg;
+
 
 	stat->current_frequency = kgsl_pwrctrl_active_freq(&device->pwrctrl);
 
