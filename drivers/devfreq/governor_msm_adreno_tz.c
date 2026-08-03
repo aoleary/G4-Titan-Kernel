@@ -45,6 +45,7 @@ static DEFINE_SPINLOCK(suspend_lock);
  * seen with LONG_FRAME lengths
  */
 #define GPU_LOAD_UP		90
+#define GPU_IDLE_HYSTERESIS 3
 #define GPU_LOAD_DOWN		55
 #define LONG_FRAME		25000
 #define MAX_TZ_VERSION		0
@@ -306,6 +307,7 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 	int val, level = 0;
 	unsigned int scm_data[3];
 	static int busy_bin, frame_flag;
+static unsigned int gpu_idle_count;
 
 	/* keeps stats.private_data == NULL   */
 	result = devfreq->profile->get_dev_status(devfreq->dev.parent, &stats);
@@ -357,11 +359,16 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 
 	if ((stats.busy_time * 100 / stats.total_time) > GPU_LOAD_UP) {
 		busy_bin += stats.busy_time;
+        gpu_idle_count = 0;
+
 		if (stats.total_time > LONG_FRAME)
 			frame_flag = 1;
 	} else {
 		busy_bin = 0;
-		frame_flag = 0;
+		if (++gpu_idle_count >= GPU_IDLE_HYSTERESIS) {
+                frame_flag = 0;
+                gpu_idle_count = 0;
+        }
 	}
 
 	level = devfreq_get_freq_level(devfreq, stats.current_frequency);
