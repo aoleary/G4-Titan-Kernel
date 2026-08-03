@@ -32,15 +32,8 @@ struct zcomp_strm_single {
  * multi zcomp_strm backend
  */
 struct zcomp_strm_multi {
-	/* protect strm list */
-	spinlock_t strm_lock;
 	/* max possible number of zstrm streams */
 	int max_strm;
-	/* number of available zstrm streams */
-	int avail_strm;
-	/* list of available strms */
-	struct list_head idle_strm;
-	wait_queue_head_t strm_wait;
         struct zcomp_strm ** __percpu streams
 };
 
