@@ -41,6 +41,7 @@ struct zcomp_strm_multi {
 	/* list of available strms */
 	struct list_head idle_strm;
 	wait_queue_head_t strm_wait;
+        struct zcomp_strm ** __percpu streams
 };
 
 static struct zcomp_backend *backends[] = {
@@ -185,45 +186,86 @@ static bool zcomp_strm_multi_set_max_streams(struct zcomp *comp, int num_strm)
 
 static void zcomp_strm_multi_destroy(struct zcomp *comp)
 {
-	struct zcomp_strm_multi *zs = comp->stream;
-	struct zcomp_strm *zstrm;
+ struct zcomp_strm_multi *zs = comp->stream;
+ int cpu;
 
-	while (!list_empty(&zs->idle_strm)) {
-		zstrm = list_entry(zs->idle_strm.next,
-				struct zcomp_strm, list);
-		list_del(&zstrm->list);
-		zcomp_strm_free(comp, zstrm);
-	}
-	kfree(zs);
+ if (!zs)
+  return;
+
+
+ for_each_possible_cpu(cpu) {
+  struct zcomp_strm **stream;
+
+  stream = per_cpu_ptr(zs->streams, cpu);
+
+  if (*stream)
+   zcomp_strm_free(comp, *stream);
+ }
+
+
+ free_percpu(zs->streams);
+
+ kfree(zs);
 }
 
-static int zcomp_strm_multi_create(struct zcomp *comp, int max_strm)
+static int zcomp_strm_multi_create(struct zcomp *comp,
+  int max_strm)
 {
-	struct zcomp_strm *zstrm;
-	struct zcomp_strm_multi *zs;
+ struct zcomp_strm_multi *zs;
+ int cpu;
 
-	comp->destroy = zcomp_strm_multi_destroy;
-	comp->strm_find = zcomp_strm_multi_find;
-	comp->strm_release = zcomp_strm_multi_release;
-	comp->set_max_streams = zcomp_strm_multi_set_max_streams;
-	zs = kmalloc(sizeof(struct zcomp_strm_multi), GFP_KERNEL);
-	if (!zs)
-		return -ENOMEM;
+ comp->destroy = zcomp_strm_multi_destroy;
+ comp->strm_find = zcomp_strm_multi_find;
+ comp->strm_release = zcomp_strm_multi_release;
+ comp->set_max_streams = zcomp_strm_multi_set_max_streams;
 
-	comp->stream = zs;
-	spin_lock_init(&zs->strm_lock);
-	INIT_LIST_HEAD(&zs->idle_strm);
-	init_waitqueue_head(&zs->strm_wait);
-	zs->max_strm = max_strm;
-	zs->avail_strm = 1;
+ zs = kmalloc(sizeof(*zs), GFP_KERNEL);
 
-	zstrm = zcomp_strm_alloc(comp, GFP_KERNEL);
-	if (!zstrm) {
-		kfree(zs);
-		return -ENOMEM;
-	}
-	list_add(&zstrm->list, &zs->idle_strm);
-	return 0;
+ if (!zs)
+  return -ENOMEM;
+
+ zs->max_strm = max_strm;
+
+ zs->streams = alloc_percpu(struct zcomp_strm *);
+
+ if (!zs->streams) {
+  kfree(zs);
+  return -ENOMEM;
+ }
+
+
+ for_each_possible_cpu(cpu) {
+  struct zcomp_strm **stream;
+
+  stream = per_cpu_ptr(zs->streams, cpu);
+
+  *stream = zcomp_strm_alloc(comp, GFP_KERNEL);
+
+  if (!*stream)
+   goto fail;
+ }
+
+
+ comp->stream = zs;
+
+ return 0;
+
+
+fail:
+ while (cpu--) {
+  struct zcomp_strm **stream;
+
+  stream = per_cpu_ptr(zs->streams, cpu);
+
+  if (*stream)
+   zcomp_strm_free(comp, *stream);
+ }
+
+ free_percpu(zs->streams);
+
+ kfree(zs);
+
+ return -ENOMEM;
 }
 
 static struct zcomp_strm *zcomp_strm_single_find(struct zcomp *comp)
