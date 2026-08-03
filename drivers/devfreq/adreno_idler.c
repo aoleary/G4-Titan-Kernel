@@ -60,7 +60,8 @@ module_param_named(adreno_idler_downdifferential, downdifferential, uint, 0664);
 static bool adreno_idler_active = true;
 module_param_named(adreno_idler_active, adreno_idler_active, bool, 0664);
 
-static unsigned int idlecount = 0;
+static unsigned int idlecount;
+#define IDLECOUNT_MAX 65
 
 int adreno_idler(struct devfreq_dev_status stats, struct devfreq *devfreq,
 		 unsigned long *freq)
@@ -70,7 +71,9 @@ int adreno_idler(struct devfreq_dev_status stats, struct devfreq *devfreq,
 
 	if (stats.busy_time < idleworkload) {
 		/* busy_time >= idleworkload should be considered as a non-idle workload. */
-		idlecount++;
+  if (idlecount < IDLECOUNT_MAX)
+   idlecount++;
+
 		if (*freq == devfreq->profile->freq_table[devfreq->profile->max_state - 1]) {
 			/* Frequency is already at its lowest.
 			   No need to calculate things, so bail out. */
@@ -80,7 +83,8 @@ int adreno_idler(struct devfreq_dev_status stats, struct devfreq *devfreq,
 		    stats.busy_time * 100 < stats.total_time * downdifferential) {
 			/* We are idle for (idlewait + 1)'th time! Ramp down the frequency now. */
 			*freq = devfreq->profile->freq_table[devfreq->profile->max_state - 1];
-			idlecount--;
+   idlecount = 0;
+
 			return 1;
 		}
 	} else if (state_suspended) {
