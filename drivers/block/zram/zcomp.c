@@ -100,65 +100,15 @@ static struct zcomp_strm *zcomp_strm_alloc(struct zcomp *comp, gfp_t flags)
  */
 static struct zcomp_strm *zcomp_strm_multi_find(struct zcomp *comp)
 {
-	struct zcomp_strm_multi *zs = comp->stream;
-	struct zcomp_strm *zstrm;
+ struct zcomp_strm_multi *zs = comp->stream;
 
-	while (1) {
-		spin_lock(&zs->strm_lock);
-		if (!list_empty(&zs->idle_strm)) {
-			zstrm = list_entry(zs->idle_strm.next,
-					struct zcomp_strm, list);
-			list_del(&zstrm->list);
-			spin_unlock(&zs->strm_lock);
-			return zstrm;
-		}
-		/* zstrm streams limit reached, wait for idle stream */
-		if (zs->avail_strm >= zs->max_strm) {
-			spin_unlock(&zs->strm_lock);
-			wait_event(zs->strm_wait, !list_empty(&zs->idle_strm));
-			continue;
-		}
-		/* allocate new zstrm stream */
-		zs->avail_strm++;
-		spin_unlock(&zs->strm_lock);
-		/*
-		 * This function can be called in swapout/fs write path
-		 * so we can't use GFP_FS|IO. And it assumes we already
-		 * have at least one stream in zram initialization so we
-		 * don't do best effort to allocate more stream in here.
-		 * A default stream will work well without further multiple
-		 * streams. That's why we use NORETRY | NOWARN.
-		 */
-		zstrm = zcomp_strm_alloc(comp, GFP_NOIO | __GFP_NORETRY |
-					__GFP_NOWARN);
-		if (!zstrm) {
-			spin_lock(&zs->strm_lock);
-			zs->avail_strm--;
-			spin_unlock(&zs->strm_lock);
-			wait_event(zs->strm_wait, !list_empty(&zs->idle_strm));
-			continue;
-		}
-		break;
-	}
-	return zstrm;
+ return *per_cpu_ptr(zs->streams, smp_processor_id());
 }
 
 /* add stream back to idle list and wake up waiter or free the stream */
-static void zcomp_strm_multi_release(struct zcomp *comp, struct zcomp_strm *zstrm)
+static void zcomp_strm_multi_release(struct zcomp *comp,
+  struct zcomp_strm *zstrm)
 {
-	struct zcomp_strm_multi *zs = comp->stream;
-
-	spin_lock(&zs->strm_lock);
-	if (zs->avail_strm <= zs->max_strm) {
-		list_add(&zstrm->list, &zs->idle_strm);
-		spin_unlock(&zs->strm_lock);
-		wake_up(&zs->strm_wait);
-		return;
-	}
-
-	zs->avail_strm--;
-	spin_unlock(&zs->strm_lock);
-	zcomp_strm_free(comp, zstrm);
 }
 
 /* change max_strm limit */
