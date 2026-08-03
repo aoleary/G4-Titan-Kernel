@@ -112,26 +112,18 @@ static void zcomp_strm_multi_release(struct zcomp *comp,
 }
 
 /* change max_strm limit */
-static bool zcomp_strm_multi_set_max_streams(struct zcomp *comp, int num_strm)
+static bool zcomp_strm_multi_set_max_streams(
+  struct zcomp *comp, int num_strm)
 {
-	struct zcomp_strm_multi *zs = comp->stream;
-	struct zcomp_strm *zstrm;
+ struct zcomp_strm_multi *zs = comp->stream;
 
-	spin_lock(&zs->strm_lock);
-	zs->max_strm = num_strm;
-	/*
-	 * if user has lowered the limit and there are idle streams,
-	 * immediately free as much streams (and memory) as we can.
-	 */
-	while (zs->avail_strm > num_strm && !list_empty(&zs->idle_strm)) {
-		zstrm = list_entry(zs->idle_strm.next,
-				struct zcomp_strm, list);
-		list_del(&zstrm->list);
-		zcomp_strm_free(comp, zstrm);
-		zs->avail_strm--;
-	}
-	spin_unlock(&zs->strm_lock);
-	return true;
+ /*
+  * Streams are allocated per CPU during creation.
+  * The old shared idle stream pool no longer exists.
+  */
+ zs->max_strm = num_strm;
+
+ return true;
 }
 
 static void zcomp_strm_multi_destroy(struct zcomp *comp)
