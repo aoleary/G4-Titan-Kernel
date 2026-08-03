@@ -44,7 +44,8 @@ static DEFINE_SPINLOCK(suspend_lock);
  * intervals that may need early intervention when
  * seen with LONG_FRAME lengths
  */
-#define BUSY_BIN		90
+#define GPU_LOAD_UP		90
+#define GPU_LOAD_DOWN		55
 #define LONG_FRAME		25000
 #define MAX_TZ_VERSION		0
 
@@ -354,7 +355,7 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 		return 0;
 	}
 
-	if ((stats.busy_time * 100 / stats.total_time) > BUSY_BIN) {
+	if ((stats.busy_time * 100 / stats.total_time) > GPU_LOAD_UP) {
 		busy_bin += stats.busy_time;
 		if (stats.total_time > LONG_FRAME)
 			frame_flag = 1;
