@@ -223,6 +223,38 @@ static int _thermal_adjust(struct kgsl_pwrctrl *pwr, int level)
  *
  * This function expects the device mutex to be unlocked.
  */
+
+#define KGSL_FREQ_COOLDOWN_MIN_MS 10
+#define KGSL_FREQ_COOLDOWN_MAX_MS 100
+
+static unsigned int kgsl_get_freq_cooldown(
+ unsigned long old_freq,
+ unsigned long new_freq)
+{
+ unsigned long delta;
+ unsigned int cooldown;
+
+ /*
+  * Boosts should remain responsive.
+  */
+ if (new_freq > old_freq)
+  return KGSL_FREQ_COOLDOWN_MIN_MS;
+
+ delta = old_freq - new_freq;
+
+ /*
+  * Scale cooldown according to transition size.
+  */
+ cooldown =
+  KGSL_FREQ_COOLDOWN_MIN_MS +
+  (delta / 10000);
+
+ if (cooldown > KGSL_FREQ_COOLDOWN_MAX_MS)
+  cooldown = KGSL_FREQ_COOLDOWN_MAX_MS;
+
+ return cooldown;
+}
+
 int kgsl_devfreq_target(struct device *dev, unsigned long *freq, u32 flags)
 {
 	struct kgsl_device *device = dev_get_drvdata(dev);
@@ -230,6 +262,7 @@ int kgsl_devfreq_target(struct device *dev, unsigned long *freq, u32 flags)
 	struct kgsl_pwrlevel *pwr_level;
 	int level, i;
 	unsigned long cur_freq;
+        ktime_t now;
 
 	if (device == NULL)
 		return -ENODEV;
@@ -249,6 +282,7 @@ int kgsl_devfreq_target(struct device *dev, unsigned long *freq, u32 flags)
 	}
 
 	mutex_lock(&device->mutex);
+        now = ktime_get();
 	cur_freq = kgsl_pwrctrl_active_freq(pwr);
 	level = pwr->active_pwrlevel;
 	pwr_level = &pwr->pwrlevels[level];
@@ -264,8 +298,39 @@ int kgsl_devfreq_target(struct device *dev, unsigned long *freq, u32 flags)
 					level = i;
 				break;
 			}
-		if (level != pwr->active_pwrlevel)
-			kgsl_pwrctrl_pwrlevel_change(device, level);
+
+		if (level != pwr->active_pwrlevel) {
+
+
+		        unsigned int cooldown;
+
+
+		        cooldown = kgsl_get_freq_cooldown(
+
+		                cur_freq,
+
+		                pwr->pwrlevels[level].gpu_freq);
+
+
+		        if (device->pwrscale.freq_change_time &&
+
+		            ktime_to_ms(now) -
+
+		            device->pwrscale.freq_change_time <
+
+		            cooldown) {
+
+		                mutex_unlock(&device->mutex);
+
+		                return 0;
+
+		        }
+
+
+		        kgsl_pwrctrl_pwrlevel_change(device, level);
+
+		}
+
 	}
 
 	*freq = kgsl_pwrctrl_active_freq(pwr);
