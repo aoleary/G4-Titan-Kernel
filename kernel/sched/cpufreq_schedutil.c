@@ -984,13 +984,36 @@ static int sugov_init(struct cpufreq_policy *policy)
                 }
 	}
         // we need to tune the big cores via the kernel as they do not directly inherit from cpu0
-        tunables->hispeed_freq = policy->max;
-        tunables->hispeed_load = 85;
-        tunables->boost_pct = 5;
-        tunables->target_load_shift = 0;
-        tunables->down_throttle_util = 70;
-	tunables->up_rate_limit_us = 500;
-	tunables->down_rate_limit_us = 4000;
+        /*
+         * MSM8992 cluster specific schedutil defaults.
+         *
+         * A53:
+         *  - Efficient scaling
+         *  - Allow full little-core frequency range
+         *
+         * A57:
+         *  - Faster response
+         *  - Allow maximum performance when required
+         */
+        if (policy->cpu < 4) {
+                /* A53 cluster */
+                tunables->hispeed_freq = 1440000;
+                tunables->hispeed_load = 90;
+                tunables->boost_pct = 5;
+                tunables->target_load_shift = 0;
+                tunables->down_throttle_util = 70;
+                tunables->up_rate_limit_us = 250;
+                tunables->down_rate_limit_us = 2500;
+        } else {
+                /* A57 cluster */
+                tunables->hispeed_freq = 1824000;
+                tunables->hispeed_load = 85;
+                tunables->boost_pct = 5;
+                tunables->target_load_shift = 0;
+                tunables->down_throttle_util = 70;
+                tunables->up_rate_limit_us = 120;
+                tunables->down_rate_limit_us = 1500;
+        }
 
 	policy->governor_data = sg_policy;
 	sg_policy->tunables = tunables;
