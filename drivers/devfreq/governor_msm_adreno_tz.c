@@ -111,20 +111,16 @@ static bool gpu_boost_running;
 
 
 
-static unsigned long gpu_input_boost_freq(
-        struct devfreq *df,
-        struct msm_adreno_extended_profile *gpu_profile)
+
+static unsigned long gpu_input_boost_freq(struct devfreq *df)
 {
         unsigned int load;
 
-        if (!gpu_profile ||
-            !gpu_profile->busy_time ||
-            !gpu_profile->total_time)
+        if (!acc_total)
                 return (df->max_freq * GPU_IB_MED_PERCENT) / 100;
 
 
-        load = gpu_profile->busy_time * 100 /
-               gpu_profile->total_time;
+        load = acc_relative_busy * 100 / acc_total;
 
 
         if (load < GPU_IB_LOW_LOAD)
@@ -137,6 +133,7 @@ static unsigned long gpu_input_boost_freq(
 
         return (df->max_freq * GPU_IB_HIGH_PERCENT) / 100;
 }
+
 
 
 
@@ -171,7 +168,11 @@ static ssize_t gpu_load_show(struct device *dev,
 	 * with the client sampling duration.
 	 */
 	spin_lock(&sample_lock);
-	sysfs_busy_perc = (acc_relative_busy * 100) / acc_total;
+    if (acc_total)
+            sysfs_busy_perc = (acc_relative_busy * 100) / acc_total;
+    else
+            sysfs_busy_perc = 0;
+
 
 	/* Reset the parameters */
 	acc_total = 0;
@@ -702,7 +703,7 @@ static void gpu_boost_worker(struct work_struct *work)
 {
 	struct devfreq *devfreq = tz_devfreq_g;
 
-	devfreq->min_freq = gpu_input_boost_freq(devfreq, gpu_profile);
+	devfreq->min_freq = gpu_input_boost_freq(devfreq);
 
 	gpu_update_devfreq(devfreq);
 
