@@ -104,10 +104,12 @@ static unsigned long gpu_input_boost_freq(struct devfreq *df)
         return (df->max_freq * GPU_IB_BOOST_PERCENT) / 100;
 }
 
-module_param(boost_freq, ulong, 0644);
 
-static unsigned long boost_duration;
-module_param(boost_duration, ulong, 0644);
+static unsigned long boost_duration = GPU_IB_BOOST_DURATION_MS;
+
+/* Saved devfreq minimum frequency during input boost */
+static unsigned long gpu_saved_min_freq;
+
 
 /*
  * Returns GPU suspend time in millisecond.
@@ -669,11 +671,16 @@ static void gpu_boost_worker(struct work_struct *work)
 {
 	struct devfreq *devfreq = tz_devfreq_g;
 
-	devfreq->min_freq = gpu_input_boost_freq(devfreq);
+	
+gpu_saved_min_freq = devfreq->min_freq;
+
+devfreq->min_freq =
+        gpu_input_boost_freq(devfreq);
+
 
 	gpu_update_devfreq(devfreq);
 
-	schedule_delayed_work(&unboost_work, msecs_to_jiffies(GPU_IB_BOOST_DURATION_MS));
+	schedule_delayed_work(&unboost_work, msecs_to_jiffies(boost_duration));
 }
 
 static void gpu_unboost_worker(struct work_struct *work)
@@ -681,8 +688,9 @@ static void gpu_unboost_worker(struct work_struct *work)
 	struct devfreq *devfreq = tz_devfreq_g;
 
 	/* Use lowest frequency */
-	devfreq->min_freq =
-		devfreq->profile->freq_table[devfreq->profile->max_state - 1];
+	
+devfreq->min_freq = gpu_saved_min_freq;
+
 
 	gpu_update_devfreq(devfreq);
 
@@ -705,7 +713,7 @@ static void gpu_ib_input_event(struct input_handle *handle,
 
 	bool suspended;
 
-	if (!boost_freq || !boost_duration)
+	if (!tz_devfreq_g)
 		return;
 
 	if (!tz_devfreq_g)
@@ -721,7 +729,7 @@ static void gpu_ib_input_event(struct input_handle *handle,
 	if (gpu_boost_running) {
 		if (cancel_delayed_work_sync(&unboost_work)) {
 			schedule_delayed_work(&unboost_work,
-				msecs_to_jiffies(GPU_IB_BOOST_DURATION_MS));
+				msecs_to_jiffies(boost_duration));
 			return;
 		}
 	}
