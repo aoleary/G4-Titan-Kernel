@@ -28,7 +28,17 @@
  * Adaptive GPU input boost tuning
  */
 #define GPU_IB_BOOST_DURATION_MS   80
+#define GPU_IB_DOWN_DELAY_MS     120
+
 #define GPU_IB_BOOST_PERCENT       70
+
+#define GPU_IB_LOW_LOAD        30
+#define GPU_IB_MED_LOAD        60
+
+#define GPU_IB_LOW_PERCENT     40
+#define GPU_IB_MED_PERCENT     70
+#define GPU_IB_HIGH_PERCENT    90
+
 
 #include <asm/cacheflush.h>
 #include <soc/qcom/scm.h>
@@ -97,14 +107,40 @@ static struct delayed_work unboost_work;
 static bool gpu_boost_running;
 
 
-static unsigned long boost_freq;
 
-static unsigned long gpu_input_boost_freq(struct devfreq *df)
+
+
+
+static unsigned long gpu_input_boost_freq(
+        struct devfreq *df,
+        struct msm_adreno_extended_profile *gpu_profile)
 {
-        return (df->max_freq * GPU_IB_BOOST_PERCENT) / 100;
+        unsigned int load;
+
+        if (!gpu_profile ||
+            !gpu_profile->busy_time ||
+            !gpu_profile->total_time)
+                return (df->max_freq * GPU_IB_MED_PERCENT) / 100;
+
+
+        load = gpu_profile->busy_time * 100 /
+               gpu_profile->total_time;
+
+
+        if (load < GPU_IB_LOW_LOAD)
+                return (df->max_freq * GPU_IB_LOW_PERCENT) / 100;
+
+
+        if (load < GPU_IB_MED_LOAD)
+                return (df->max_freq * GPU_IB_MED_PERCENT) / 100;
+
+
+        return (df->max_freq * GPU_IB_HIGH_PERCENT) / 100;
 }
 
-static unsigned long boost_duration = GPU_IB_BOOST_DURATION_MS;
+
+
+
 
 /*
  * Returns GPU suspend time in millisecond.
@@ -666,7 +702,7 @@ static void gpu_boost_worker(struct work_struct *work)
 {
 	struct devfreq *devfreq = tz_devfreq_g;
 
-	devfreq->min_freq = gpu_input_boost_freq(devfreq);
+	devfreq->min_freq = gpu_input_boost_freq(devfreq, gpu_profile);
 
 	gpu_update_devfreq(devfreq);
 
