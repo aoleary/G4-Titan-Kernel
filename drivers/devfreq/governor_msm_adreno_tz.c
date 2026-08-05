@@ -104,10 +104,7 @@ static unsigned long gpu_input_boost_freq(struct devfreq *df)
         return (df->max_freq * GPU_IB_BOOST_PERCENT) / 100;
 }
 
-module_param(boost_freq, ulong, 0644);
-
-static unsigned long boost_duration;
-module_param(boost_duration, ulong, 0644);
+static unsigned long boost_duration = GPU_IB_BOOST_DURATION_MS;
 
 /*
  * Returns GPU suspend time in millisecond.
@@ -705,7 +702,7 @@ static void gpu_ib_input_event(struct input_handle *handle,
 
 	bool suspended;
 
-	if (!boost_freq || !boost_duration)
+	if (!tz_devfreq_g)
 		return;
 
 	if (!tz_devfreq_g)
