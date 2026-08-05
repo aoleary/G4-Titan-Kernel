@@ -22,6 +22,14 @@
 #include <linux/mm.h>
 #include <linux/msm_adreno_devfreq.h>
 #include <linux/state_notifier.h>
+
+
+/*
+ * Adaptive GPU input boost tuning
+ */
+#define GPU_IB_BOOST_DURATION_MS   80
+#define GPU_IB_BOOST_PERCENT       70
+
 #include <asm/cacheflush.h>
 #include <soc/qcom/scm.h>
 #include "governor.h"
@@ -88,7 +96,14 @@ static struct work_struct boost_work;
 static struct delayed_work unboost_work;
 static bool gpu_boost_running;
 
+
 static unsigned long boost_freq;
+
+static unsigned long gpu_input_boost_freq(struct devfreq *df)
+{
+        return (df->max_freq * GPU_IB_BOOST_PERCENT) / 100;
+}
+
 module_param(boost_freq, ulong, 0644);
 
 static unsigned long boost_duration;
@@ -654,11 +669,11 @@ static void gpu_boost_worker(struct work_struct *work)
 {
 	struct devfreq *devfreq = tz_devfreq_g;
 
-	devfreq->min_freq = boost_freq;
+	devfreq->min_freq = gpu_input_boost_freq(devfreq);
 
 	gpu_update_devfreq(devfreq);
 
-	schedule_delayed_work(&unboost_work, msecs_to_jiffies(boost_duration));
+	schedule_delayed_work(&unboost_work, msecs_to_jiffies(GPU_IB_BOOST_DURATION_MS));
 }
 
 static void gpu_unboost_worker(struct work_struct *work)
@@ -677,6 +692,17 @@ static void gpu_unboost_worker(struct work_struct *work)
 static void gpu_ib_input_event(struct input_handle *handle,
 		unsigned int type, unsigned int code, int value)
 {
+
+        /*
+         * Only touchscreen events trigger GPU boost.
+         */
+        if (type != EV_ABS)
+                return;
+
+        if (code != ABS_MT_POSITION_X &&
+            code != ABS_MT_POSITION_Y)
+                return;
+
 	bool suspended;
 
 	if (!boost_freq || !boost_duration)
@@ -695,7 +721,7 @@ static void gpu_ib_input_event(struct input_handle *handle,
 	if (gpu_boost_running) {
 		if (cancel_delayed_work_sync(&unboost_work)) {
 			schedule_delayed_work(&unboost_work,
-				msecs_to_jiffies(boost_duration));
+				msecs_to_jiffies(GPU_IB_BOOST_DURATION_MS));
 			return;
 		}
 	}
