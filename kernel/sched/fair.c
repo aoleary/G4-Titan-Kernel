@@ -1407,6 +1407,29 @@ static int bmhb_stat = 0;
 unsigned int sysctl_sched_cancun = 1;
 
 
+
+/*
+ * Scale utilisation using current CPU capacity.
+ *
+ * This kernel does not provide arch_scale_freq_capacity().
+ * Keep utilisation comparable across asymmetric CPUs.
+ */
+static inline unsigned long scale_util_by_cpu_capacity(
+        struct rq *rq,
+        unsigned long util)
+{
+        unsigned long capacity;
+
+        capacity = rq->capacity;
+
+        if (!capacity)
+                return util;
+
+        return min_t(unsigned long,
+                     (util * SCHED_CAPACITY_SCALE) / capacity,
+                     SCHED_CAPACITY_SCALE);
+}
+
 static inline int available_cpu_capacity(int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
@@ -3438,7 +3461,12 @@ static inline void update_entity_load_avg(struct sched_entity *se,
 		 * See cpu_util().
 		 */
 		cpufreq_update_util(rq->clock,
-				    uclamp_util_with(rq, min(cfs_rq->runnable_load_avg, max), NULL), max);
+				    uclamp_util_with(rq,
+				        scale_util_by_cpu_capacity(
+				            rq,
+				            min(cfs_rq->runnable_load_avg, max)),
+				        NULL),
+				    max);
 	}
 }
 
