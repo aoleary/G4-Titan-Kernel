@@ -106,34 +106,26 @@ static struct work_struct boost_work;
 static struct delayed_work unboost_work;
 static bool gpu_boost_running;
 
+/* Kernel controlled input boost duration */
+static unsigned long boost_duration = GPU_IB_BOOST_DURATION_MS;
+
+/* Cached GPU utilisation for load aware input boost */
+static unsigned int gpu_last_load;
 
 
 
 
 
-static unsigned long gpu_input_boost_freq(
-        struct devfreq *df,
-        struct msm_adreno_extended_profile *gpu_profile)
+
+static unsigned long gpu_input_boost_freq(struct devfreq *df)
 {
-        unsigned int load;
-
-        if (!gpu_profile ||
-            !gpu_profile->busy_time ||
-            !gpu_profile->total_time)
-                return (df->max_freq * GPU_IB_MED_PERCENT) / 100;
-
-
-        load = gpu_profile->busy_time * 100 /
-               gpu_profile->total_time;
-
+        unsigned int load = gpu_last_load;
 
         if (load < GPU_IB_LOW_LOAD)
                 return (df->max_freq * GPU_IB_LOW_PERCENT) / 100;
 
-
         if (load < GPU_IB_MED_LOAD)
                 return (df->max_freq * GPU_IB_MED_PERCENT) / 100;
-
 
         return (df->max_freq * GPU_IB_HIGH_PERCENT) / 100;
 }
@@ -141,6 +133,7 @@ static unsigned long gpu_input_boost_freq(
 
 /* Saved devfreq minimum frequency during input boost */
 static unsigned long gpu_saved_min_freq;
+static bool gpu_saved_min_valid;
 
 
 /*
@@ -353,6 +346,7 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 	int result = 0;
 	struct devfreq_msm_adreno_tz_data *priv = devfreq->data;
 	struct devfreq_dev_status stats;
+
 	int val, level = 0;
 	unsigned int scm_data[3];
 	static int busy_bin, frame_flag;
@@ -370,6 +364,12 @@ static unsigned int gpu_idle_count;
 		stats.busy_time >>= 7;
 		stats.total_time >>= 7;
 	}
+
+        if (stats.total_time)
+                gpu_last_load =
+                        stats.busy_time * 100 /
+                        stats.total_time;
+
 
 	*freq = stats.current_frequency;
 
@@ -703,10 +703,13 @@ static void gpu_boost_worker(struct work_struct *work)
 {
 	struct devfreq *devfreq = tz_devfreq_g;
 
-gpu_saved_min_freq = devfreq->min_freq;
+if (!gpu_saved_min_valid) {
+    gpu_saved_min_freq = devfreq->min_freq;
+    gpu_saved_min_valid = true;
+}
 
 devfreq->min_freq =
-        gpu_input_boost_freq(devfreq, gpu_profile);
+        gpu_input_boost_freq(devfreq);
 
 
 	gpu_update_devfreq(devfreq);
@@ -718,9 +721,12 @@ static void gpu_unboost_worker(struct work_struct *work)
 {
 	struct devfreq *devfreq = tz_devfreq_g;
 
-	/* Use lowest frequency */
+	/* Restore previous devfreq minimum constraint */
 	
-devfreq->min_freq = gpu_saved_min_freq;
+if (gpu_saved_min_valid) {
+    devfreq->min_freq = gpu_saved_min_freq;
+    gpu_saved_min_valid = false;
+}
 
 
 	gpu_update_devfreq(devfreq);
@@ -855,6 +861,7 @@ static void gpu_ib_init(void)
 
 static int __init msm_adreno_tz_init(void)
 {
+    int ret;
 	workqueue = create_freezable_workqueue("governor_msm_adreno_tz_wq");
 	if (workqueue == NULL)
 		return -ENOMEM;
