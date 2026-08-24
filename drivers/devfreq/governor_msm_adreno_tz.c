@@ -117,6 +117,7 @@ static unsigned int gpu_last_load;
 
 
 
+
 static unsigned long gpu_input_boost_freq(struct devfreq *df)
 {
         unsigned int load = gpu_last_load;
@@ -129,6 +130,7 @@ static unsigned long gpu_input_boost_freq(struct devfreq *df)
 
         return (df->max_freq * GPU_IB_HIGH_PERCENT) / 100;
 }
+
 
 
 /* Saved devfreq minimum frequency during input boost */
