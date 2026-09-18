@@ -27,17 +27,21 @@
 /*
  * Adaptive GPU input boost tuning
  */
-#define GPU_IB_BOOST_DURATION_MS   80
-#define GPU_IB_DOWN_DELAY_MS     120
+/*
+ * G4 / Adreno 418 input boost.
+ *
+ * Use frequencies from the actual G4 GPU table instead of
+ * percentages of max_freq.
+ */
+#define GPU_IB_BOOST_DURATION_MS   45
+#define GPU_IB_DOWN_DELAY_MS       75
 
-#define GPU_IB_BOOST_PERCENT       70
+#define GPU_IB_LOW_FREQ            450000000UL
+#define GPU_IB_MED_FREQ            490000000UL
+#define GPU_IB_HIGH_FREQ           600000000UL
 
-#define GPU_IB_LOW_LOAD        30
-#define GPU_IB_MED_LOAD        60
-
-#define GPU_IB_LOW_PERCENT     40
-#define GPU_IB_MED_PERCENT     70
-#define GPU_IB_HIGH_PERCENT    90
+#define GPU_IB_LOW_LOAD            30
+#define GPU_IB_HIGH_LOAD           85
 
 
 #include <asm/cacheflush.h>
@@ -105,6 +109,7 @@ static struct devfreq *tz_devfreq_g;
 static struct work_struct boost_work;
 static struct delayed_work unboost_work;
 static bool gpu_boost_running;
+static DEFINE_SPINLOCK(gpu_boost_lock);
 
 
 
@@ -112,26 +117,24 @@ static bool gpu_boost_running;
 
 
 
-static unsigned long gpu_input_boost_freq(struct devfreq *df)
+static unsigned long gpu_input_boost_freq(void)
 {
-        unsigned int load;
+        unsigned long load = 0;
 
-        if (!acc_total)
-                return (df->max_freq * GPU_IB_MED_PERCENT) / 100;
+        spin_lock(&sample_lock);
 
+        if (acc_total)
+                load = (acc_relative_busy * 100) / acc_total;
 
-        load = acc_relative_busy * 100 / acc_total;
-
+        spin_unlock(&sample_lock);
 
         if (load < GPU_IB_LOW_LOAD)
-                return (df->max_freq * GPU_IB_LOW_PERCENT) / 100;
+                return GPU_IB_LOW_FREQ;
 
+        if (load < GPU_IB_HIGH_LOAD)
+                return GPU_IB_MED_FREQ;
 
-        if (load < GPU_IB_MED_LOAD)
-                return (df->max_freq * GPU_IB_MED_PERCENT) / 100;
-
-
-        return (df->max_freq * GPU_IB_HIGH_PERCENT) / 100;
+        return GPU_IB_HIGH_FREQ;
 }
 
 
@@ -701,35 +704,53 @@ static void gpu_update_devfreq(struct devfreq *devfreq)
 
 static void gpu_boost_worker(struct work_struct *work)
 {
-	struct devfreq *devfreq = tz_devfreq_g;
+        struct devfreq *devfreq;
+        unsigned long boost_freq;
 
-	devfreq->min_freq = gpu_input_boost_freq(devfreq);
+        devfreq = READ_ONCE(tz_devfreq_g);
 
-	gpu_update_devfreq(devfreq);
+        if (!devfreq)
+                return;
 
-	schedule_delayed_work(&unboost_work, msecs_to_jiffies(GPU_IB_BOOST_DURATION_MS));
+        boost_freq = gpu_input_boost_freq();
+
+        devfreq->min_freq = boost_freq;
+
+        gpu_update_devfreq(devfreq);
+
+        schedule_delayed_work(
+                &unboost_work,
+                msecs_to_jiffies(GPU_IB_BOOST_DURATION_MS));
 }
 
 static void gpu_unboost_worker(struct work_struct *work)
 {
-	struct devfreq *devfreq = tz_devfreq_g;
+        struct devfreq *devfreq;
+        unsigned long min_freq;
 
-	/* Use lowest frequency */
-	devfreq->min_freq =
-		devfreq->profile->freq_table[devfreq->profile->max_state - 1];
+        devfreq = READ_ONCE(tz_devfreq_g);
 
-	gpu_update_devfreq(devfreq);
+        if (!devfreq)
+                return;
 
-	gpu_boost_running = false;
+        min_freq =
+                devfreq->profile->freq_table[
+                        devfreq->profile->max_state - 1];
+
+        devfreq->min_freq = min_freq;
+
+        gpu_update_devfreq(devfreq);
+
+        spin_lock(&gpu_boost_lock);
+        gpu_boost_running = false;
+        spin_unlock(&gpu_boost_lock);
 }
 
 static void gpu_ib_input_event(struct input_handle *handle,
-		unsigned int type, unsigned int code, int value)
+                unsigned int type, unsigned int code, int value)
 {
+        bool suspended;
 
-        /*
-         * Only touchscreen events trigger GPU boost.
-         */
         if (type != EV_ABS)
                 return;
 
@@ -737,31 +758,34 @@ static void gpu_ib_input_event(struct input_handle *handle,
             code != ABS_MT_POSITION_Y)
                 return;
 
-	bool suspended;
+        if (!READ_ONCE(tz_devfreq_g))
+                return;
 
-	if (!tz_devfreq_g)
-		return;
+        spin_lock(&suspend_lock);
+        suspended = suspend_start != 0;
+        spin_unlock(&suspend_lock);
 
-	if (!tz_devfreq_g)
-		return;
+        if (suspended)
+                return;
 
-	spin_lock(&suspend_lock);
-	suspended = suspend_start;
-	spin_unlock(&suspend_lock);
+        spin_lock(&gpu_boost_lock);
+        if (gpu_boost_running) {
+                spin_unlock(&gpu_boost_lock);
 
-	if (suspended)
-		return;
+                mod_delayed_work(
+                        system_wq,
+                        &unboost_work,
+                        msecs_to_jiffies(
+                                GPU_IB_BOOST_DURATION_MS +
+                                GPU_IB_DOWN_DELAY_MS));
+                return;
+        }
 
-	if (gpu_boost_running) {
-		if (cancel_delayed_work_sync(&unboost_work)) {
-			schedule_delayed_work(&unboost_work,
-				msecs_to_jiffies(GPU_IB_BOOST_DURATION_MS));
-			return;
-		}
-	}
+        gpu_boost_running = true;
 
-	gpu_boost_running = true;
-	queue_work(system_highpri_wq, &boost_work);
+        spin_unlock(&gpu_boost_lock);
+
+        queue_work(system_highpri_wq, &boost_work);
 }
 
 static int gpu_ib_input_connect(struct input_handler *handler,
