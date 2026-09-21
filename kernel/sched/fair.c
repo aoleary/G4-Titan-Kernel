@@ -1274,12 +1274,39 @@ unsigned int __read_mostly sysctl_sched_min_runtime = 0; /* 0 ms */
 u64 __read_mostly sched_min_runtime = 0; /* 0 ms */
 
 /* LG Cancun Project */
+#ifdef CONFIG_UCLAMP_TASK
+static inline unsigned int uclamp_task_load(struct task_struct *p)
+{
+        unsigned int uclamp_min;
+
+        uclamp_min = uclamp_eff_value(p, UCLAMP_MIN);
+
+        if (!uclamp_min)
+                return 0;
+
+        if (sched_use_pelt)
+                return div64_u64((u64)uclamp_min * LOAD_AVG_MAX,
+                                 SCHED_CAPACITY_SCALE);
+
+        return div64_u64((u64)uclamp_min * sched_ravg_window,
+                         SCHED_CAPACITY_SCALE);
+}
+#endif
+
 static inline unsigned int task_load_migration(struct task_struct *p)
 {
-	if (sched_use_pelt)
-		return p->se.avg.runnable_avg_sum_scaled;
+        unsigned int load;
 
-	return p->ravg.demand_for_migration;
+        if (sched_use_pelt)
+                load = p->se.avg.runnable_avg_sum_scaled;
+        else
+                load = p->ravg.demand_for_migration;
+
+#ifdef CONFIG_UCLAMP_TASK
+        load = max(load, uclamp_task_load(p));
+#endif
+
+        return load;
 }
 
 static inline unsigned int task_load(struct task_struct *p)
